@@ -26,9 +26,8 @@
 #include <pmacc/memory/Align.hpp>
 #include <pmacc/particles/Identifier.hpp>
 
-#include <alpaka/atomic/Op.hpp>
-#include <alpaka/atomic/Traits.hpp>
-#include <alpaka/mem/fence/Traits.hpp>
+#include <alpaka/onAcc/atomic.hpp>
+#include <alpaka/onAcc/memFence.hpp>
 
 #include <concepts>
 #include <new>
@@ -127,7 +126,7 @@ namespace pmacc::spearhed
 
             node->next = nullptr;
 
-            PtrType oldLast = alpaka::atomicExch(worker.getAcc(), &m_lastNode, node);
+            PtrType oldLast = alpaka::onAcc::atomicExch(worker.getAcc(), &m_lastNode, node);
             if(oldLast != nullptr)
             {
                 // List was non-empty, link old last to new node
@@ -140,7 +139,7 @@ namespace pmacc::spearhed
             }
             // fence to publish changes to the list to everyone
             // TODO use a release fence
-            alpaka::mem_fence(worker.getAcc(), alpaka::memory_scope::Device{});
+            alpaka::onAcc::memFence(worker.getAcc(), alpaka::onAcc::scope::device, alpaka::onAcc::order::seq_cst);
         }
 
         constexpr auto begin() const

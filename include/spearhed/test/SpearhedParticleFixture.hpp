@@ -29,7 +29,6 @@
 #include <pmacc/test/PMaccFixture.hpp>
 
 #include <alpaka/alpaka.hpp>
-#include <alpaka/core/Positioning.hpp>
 
 #include <cstdint>
 #include <memory>

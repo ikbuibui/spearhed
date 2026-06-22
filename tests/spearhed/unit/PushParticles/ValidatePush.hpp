@@ -76,7 +76,11 @@ struct CheckParticlePos
                                        1.f)))
                             {
                                 // Increment error counter on device
-                                alpaka::atomicAdd(worker.getAcc(), d_errorCount, 1, alpaka::hierarchy::Blocks{});
+                                alpaka::onAcc::atomicAdd(
+                                    worker.getAcc(),
+                                    d_errorCount,
+                                    1,
+                                    alpaka::onAcc::scope::device);
                             }
                         }
                     });

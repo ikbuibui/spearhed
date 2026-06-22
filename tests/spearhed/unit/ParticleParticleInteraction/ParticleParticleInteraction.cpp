@@ -28,7 +28,6 @@
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 
 #include <alpaka/alpaka.hpp>
-#include <alpaka/core/Positioning.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -49,7 +48,11 @@ struct InteractionCountFunc
         if(ctx.is_self) [[unlikely]]
             return;
 
-        alpaka::atomicAdd(worker.getAcc(), &count_db(0), static_cast<uint64_t>(1), ::alpaka::hierarchy::Blocks{});
+        alpaka::onAcc::atomicAdd(
+            worker.getAcc(),
+            &count_db(0),
+            static_cast<uint64_t>(1),
+            alpaka::onAcc::scope::device);
     }
 };
 

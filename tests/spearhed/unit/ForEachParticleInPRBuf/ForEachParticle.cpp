@@ -28,7 +28,6 @@
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 
 #include <alpaka/alpaka.hpp>
-#include <alpaka/core/Positioning.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -39,7 +38,11 @@ struct SumFunc
 {
     HDINLINE constexpr void operator()(auto& worker, auto& particle, auto sum_db) const
     {
-        alpaka::atomicAdd(worker.getAcc(), &sum_db(0), *particle[spearhed::particleId], ::alpaka::hierarchy::Blocks{});
+        alpaka::onAcc::atomicAdd(
+            worker.getAcc(),
+            &sum_db(0),
+            *particle[spearhed::particleId],
+            alpaka::onAcc::scope::device);
     }
 };
 

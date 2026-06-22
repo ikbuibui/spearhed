@@ -91,7 +91,11 @@ namespace reduce::detail
                     // TODO consider warp-level primitives for better performance
                     if(threadLocalSum != 0)
                     {
-                        alpaka::atomicAdd(worker.getAcc(), &blockSum, threadLocalSum, ::alpaka::hierarchy::Threads{});
+                        alpaka::onAcc::atomicAdd(
+                            worker.getAcc(),
+                            &blockSum,
+                            threadLocalSum,
+                            alpaka::onAcc::scope::block);
                     }
 
                     worker.sync();

@@ -27,7 +27,6 @@
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 
 #include <alpaka/alpaka.hpp>
-#include <alpaka/core/Positioning.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 

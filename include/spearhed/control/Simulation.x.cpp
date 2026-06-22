@@ -286,16 +286,19 @@ namespace spearhed
         size_t allocatableMemory = freeDeviceMemory;
         bool memAlloced = false;
         // tmpBuffer avoids that the memory is freed before all other MPI ranks created there test buffer
-        std::optional<::alpaka::Buf<pmacc::ComputeDevice, std::byte, pmacc::AlpakaDim<1>, size_t>> tmpBuffer{};
+        using TmpBufferType = decltype(alpaka::onHost::alloc<std::byte>(
+            std::declval<pmacc::ComputeDevice>(),
+            std::declval<alpaka::Vec<size_t, 1u>>()));
+        std::optional<TmpBufferType> tmpBuffer{};
 
         // Check how much memory can be allocated with a single allocation call.
         do
         {
             try
             {
-                auto testBuffer = alpaka::allocBuf<std::byte, size_t>(
+                auto testBuffer = alpaka::onHost::alloc<std::byte>(
                     pmacc::manager::Device<pmacc::ComputeDevice>::get().current(),
-                    allocatableMemory);
+                    alpaka::Vec<size_t, 1u>{allocatableMemory});
                 tmpBuffer = testBuffer;
                 memAlloced = true;
             }
