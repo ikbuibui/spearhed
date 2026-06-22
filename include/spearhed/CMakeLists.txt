@@ -51,10 +51,11 @@ target_include_directories(
     PUBLIC $<BUILD_INTERFACE:${_spearhed_ROOT_DIR}/include> $<INSTALL_INTERFACE:include>
 )
 
-alpaka_add_executable(spearhed ${ACCSRCFILES})
+add_executable(spearhed ${ACCSRCFILES})
 
 target_link_libraries(spearhed PUBLIC spearhed-hostonly)
 target_link_libraries(spearhed PRIVATE pmacc::pmacc)
+alpaka_finalize(spearhed)
 
 if(SPEARHED_ENABLE_OPENPMD)
     target_link_libraries(spearhed-hostonly PUBLIC openPMD::openPMD)
