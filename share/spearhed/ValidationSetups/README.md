@@ -69,6 +69,59 @@ larger runs.
 | **Total incl. walls** | ~35k | ~7.0k | ~15k |
 | **Wall pieces** | 2 (x-caps) | 6 | 10 |
 
+## Pre-migration SC baseline
+
+The spacing-driven layout was characterized before the domain- and
+count-driven SC migration. The host-side regression test is
+`tests/spmacc/unit/SCCharacterization/SCCharacterization.cpp`. It evaluates all
+three dimensions independently of the configured simulation dimension.
+
+The approximate target counts below are the resolution inputs to preserve
+through the migration. The 1D legacy spacing produces one fewer particle than
+its target because its left and right cell counts are independently truncated.
+
+| Dimension | Migration target | Left cells | Right cells | Left particles | Right particles | Actual fluid particles | Particle mass |
+|---|---:|---|---|---:|---:|---:|---:|
+| 1D | 32000 | `[28444]` | `[3555]` | 28444 | 3555 | 31999 | 3.515625e-5 |
+| 2D | 3150 | `[200, 14]` | `[70, 5]` | 2800 | 350 | 3150 | 2.500000e-5 |
+| 3D | 3375 | `[30, 10, 10]` | `[15, 5, 5]` | 3000 | 375 | 3375 | 3.7037044e-5 |
+
+Effective spacing is the region extent divided by its integer cell count; it
+can differ from the configured nominal spacing after rounding:
+
+| Dimension | Left effective spacing | Right effective spacing |
+|---|---|---|
+| 1D | `[3.5156798e-5]` | `[2.8129396e-4]` |
+| 2D | `[0.005, 0.005]` | `[0.014285714, 0.014]` |
+| 3D | `[0.033333335, 0.033333335, 0.033333335]` | `[0.06666667, 0.06666667, 0.06666667]` |
+
+### openPMD and validation baseline
+
+These values were measured at source revision
+`8b3829c7d4a6168f802e5ca9a2da50c8af95f2bb` with the Release OMP2 backend,
+four OpenMP threads, `dt = 0.001`, 200 steps, and 200 x bins. The step-zero
+openPMD files contained only the `fluid` species and confirmed the regional
+counts and common masses in the table above. The fluid count was unchanged at
+step 200.
+
+| Dimension | Fluid particles in openPMD | Density L1 | Velocity x L1 | Pressure L1 | Internal energy L1 |
+|---|---:|---:|---:|---:|---:|
+| 1D | 31999 | 0.0118 | 0.0281 | 0.0133 | 0.0510 |
+| 2D | 3150 | 0.0371 | 0.0838 | 0.0416 | 0.0999 |
+| 3D | 3375 | 0.0524 | 0.1002 | 0.0607 | 0.1173 |
+
+The corresponding transverse diagnostics were:
+
+| Dimension | max abs(v_y) | L1(v_y) | max abs(v_z) | L1(v_z) |
+|---|---:|---:|---:|---:|
+| 2D | 2.376032 | 0.047952 | -- | -- |
+| 3D | 0.775681 | 0.034993 | 0.789283 | 0.032477 |
+
+These measurements characterize current behavior; they are not acceptance
+thresholds. In particular, the large transverse maxima are retained here so a
+migration does not silently appear to improve or regress pre-existing boundary
+artifacts.
+
 ## Tuning knobs
 
 - `dxLeft` -- controls particle resolution. Edit `spacingLeft()` in `SodShockTube.hpp`.
