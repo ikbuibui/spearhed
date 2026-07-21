@@ -22,32 +22,43 @@
 
 #include <array>
 #include <cstdint>
-#include <utility>
+#include <limits>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 namespace
 {
-    template<pmacc::spearhed::T_Dim Dim>
-    using Cartesian = pmacc::spearhed::Cartesian<float, Dim>;
-
-    template<pmacc::spearhed::T_Dim Dim, std::size_t... Is>
-    constexpr auto makeVec(std::array<float, Dim> const& values, std::index_sequence<Is...>)
+    constexpr uint32_t legacyTruncateNearInteger(float value)
     {
-        using CS = Cartesian<Dim>;
-        return pmacc::spearhed::Vec<CS, pmacc::spearhed::ValueStorage<CS>>{values[Is]...};
+        auto const truncated = static_cast<uint32_t>(value);
+        auto const scale = (value > 1.0f) ? value : 1.0f;
+        auto const tolerance = 4.0f * std::numeric_limits<float>::epsilon() * scale;
+        auto const distanceToNext = static_cast<float>(truncated + 1u) - value;
+        return (distanceToNext >= 0.0f && distanceToNext <= tolerance) ? truncated + 1u : truncated;
     }
 
     template<pmacc::spearhed::T_Dim Dim>
-    constexpr auto makeAABB(std::array<float, Dim> const& extents)
+    constexpr auto legacySpacingCellCounts(std::array<float, Dim> const& extents, float spacing)
     {
-        using CS = Cartesian<Dim>;
-        return pmacc::spearhed::AABB<CS>{
-            {},
-            makeVec<Dim>(std::array<float, Dim>{}, std::make_index_sequence<Dim>{}),
-            makeVec<Dim>(extents, std::make_index_sequence<Dim>{}),
-        };
+        std::array<uint32_t, Dim> cells{};
+        cells[0] = legacyTruncateNearInteger(extents[0] / spacing);
+        cells[0] = (cells[0] == 0u) ? 1u : cells[0];
+        for(std::size_t i = 1; i < Dim; ++i)
+        {
+            auto const rounded = static_cast<uint32_t>(extents[i] / spacing + 0.5f);
+            cells[i] = (rounded == 0u) ? 1u : rounded;
+        }
+        return cells;
+    }
+
+    template<pmacc::spearhed::T_Dim Dim>
+    constexpr uint32_t legacyNumSites(std::array<uint32_t, Dim> const& cells)
+    {
+        uint32_t sites = 1u;
+        for(auto const count : cells)
+            sites *= count;
+        return sites;
     }
 
     template<pmacc::spearhed::T_Dim Dim>
@@ -68,10 +79,8 @@ namespace
         float leftSpacing,
         float spacingRatio)
     {
-        using CS = Cartesian<Dim>;
-        auto const region = makeAABB<Dim>(regionExtents);
-        auto const leftCells = pmacc::spearhed::computeSCCellCounts<CS>(region, leftSpacing);
-        auto const rightCells = pmacc::spearhed::computeSCCellCounts<CS>(region, leftSpacing * spacingRatio);
+        auto const leftCells = legacySpacingCellCounts<Dim>(regionExtents, leftSpacing);
+        auto const rightCells = legacySpacingCellCounts<Dim>(regionExtents, leftSpacing * spacingRatio);
 
         float particleMass = 1.0f;
         for(std::size_t i = 0; i < Dim; ++i)
@@ -88,8 +97,8 @@ namespace
         return {
             leftCells,
             rightCells,
-            pmacc::spearhed::numSCLatticeSites(leftCells),
-            pmacc::spearhed::numSCLatticeSites(rightCells),
+            legacyNumSites<Dim>(leftCells),
+            legacyNumSites<Dim>(rightCells),
             particleMass,
             leftEffectiveSpacing,
             rightEffectiveSpacing,

@@ -31,8 +31,12 @@
 
 #include <alpaka/alpaka.hpp>
 
+#include <array>
 #include <cstdint>
+#include <limits>
+#include <stdexcept>
 #include <tuple>
+#include <type_traits>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -50,7 +54,7 @@ struct SCLatticeSetup
     // This setup fills a single species and acts as its own (only) init block.
     using Species = pmacc::spearhed::species::Default;
 
-    uint32_t numParticles = 8u;
+    pmacc::spearhed::SCShape<spearhed::CS> shape{{2u, 2u, 2u}};
 
     pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0, 0}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}};
 
@@ -72,14 +76,14 @@ struct SCLatticeSetup
 
     auto numParticlesToCreateArgs() const
     {
-        return std::make_tuple(numParticles);
+        return std::make_tuple(pmacc::spearhed::checkedParticleCount(shape));
     }
 
     using PlaceParticle = pmacc::spearhed::SC<spearhed::CS>;
 
     auto placeParticleArgs() const
     {
-        return std::make_tuple(pmacc::spearhed::computeSCNumCells(numParticles, domain));
+        return std::make_tuple(shape);
     }
 
     template<typename>
@@ -105,17 +109,35 @@ struct SumPositions
 
 using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
 
-TEST_CASE("SC spacing counts tolerate roundoff at an integral x ratio", "[particles][sc][spacing]")
+TEST_CASE("SCShape provides checked counts and effective spacing", "[particles][sc][shape]")
 {
-    pmacc::spearhed::AABB<spearhed::CS> const unitDomain{{0, 0, 0}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}};
+    using Shape = pmacc::spearhed::SCShape<spearhed::CS>;
+    static_assert(std::is_trivially_copyable_v<Shape>);
+
+    Shape const shape{{3u, 2u, 4u}};
+    REQUIRE(shape.numSites() == 24u);
+    REQUIRE(pmacc::spearhed::checkedParticleCount(shape) == 24u);
+
+    pmacc::spearhed::AABB<spearhed::CS> const domain{{0, 0, 0}, {0.0f, -1.0f, 2.0f}, {3.0f, 1.0f, 10.0f}};
+    REQUIRE(pmacc::spearhed::effectiveSCSpacing(domain, shape) == std::array<double, 3>{1.0, 1.0, 2.0});
+
+    REQUIRE_THROWS_AS(pmacc::spearhed::checkedParticleCount(Shape{{3u, 0u, 4u}}), std::invalid_argument);
+    REQUIRE_THROWS_AS(
+        pmacc::spearhed::checkedParticleCount(Shape{{std::numeric_limits<uint32_t>::max(), 2u, 1u}}),
+        std::overflow_error);
+}
+
+TEST_CASE("Target-spacing SC shapes use one rounding policy on every axis", "[particles][sc][spacing]")
+{
+    pmacc::spearhed::AABB<spearhed::CS> const domain{{0, 0, 0}, {0.0f, 0.0f, 0.0f}, {14.75f, 15.0f, 15.25f}};
+    auto const shape = pmacc::spearhed::makeSCShapeForTargetSpacing(domain, 1.0f);
+    REQUIRE(shape.cells == std::array<uint32_t, 3>{15u, 15u, 15u});
 
     // This is the spacing used by the 3D Sod setup. In float arithmetic the
     // quotient can be 14.999999 rather than the mathematically exact 15.
+    pmacc::spearhed::AABB<spearhed::CS> const unitDomain{{0, 0, 0}, {0.0f, 0.0f, 0.0f}, {1.0f, 1.0f, 1.0f}};
     float const sodRightSpacing = 2.0f * (1.0f / 30.0f);
-    REQUIRE(pmacc::spearhed::computeSCCellCounts(unitDomain, sodRightSpacing)[0] == 15u);
-
-    pmacc::spearhed::AABB<spearhed::CS> const fractionalDomain{{0, 0, 0}, {0.0f, 0.0f, 0.0f}, {14.75f, 1.0f, 1.0f}};
-    REQUIRE(pmacc::spearhed::computeSCCellCounts(fractionalDomain, 1.0f)[0] == 14u);
+    REQUIRE(pmacc::spearhed::makeSCShapeForTargetSpacing(unitDomain, sodRightSpacing).cells[0] == 15u);
 }
 
 /**
@@ -207,7 +229,7 @@ struct CountExpectedSCLatticePositions
 };
 
 /**
- * Spacing-driven SC lattice setup using the new array overload of SC::operator().
+ * Spacing-driven SC lattice setup using the complete SCShape placement API.
  *
  * Uses a non-cubic AABB [0,3] x [0,1] x [0,0.5] with spacing=1.0, producing
  * per-axis counts n = [3, 1, 1] = 3 particles.  The spacing-based approach
@@ -229,37 +251,35 @@ struct SCLatticeSpacingSetup
     }
 
     /**
-     * Pre-compute per-axis counts on host; pass them to both the count functor
-     * and the placement functor so they stay in sync.
+     * Construct the complete shape on the host. Derive the checked allocation
+     * count from the same shape passed to placement.
      */
-    auto countsArray() const
+    auto shape() const
     {
-        return pmacc::spearhed::computeSCCellCounts(domain, spacing);
+        return pmacc::spearhed::makeSCShapeForTargetSpacing(domain, spacing);
     }
 
-    /// Number of particles = prod_i(counts[i])
     struct NumParticlesToCreate
     {
         DINLINE constexpr auto operator()(
             [[maybe_unused]] auto& worker,
             [[maybe_unused]] auto& particleRegion,
-            std::array<uint32_t, TEST_DIM> const& n) const
+            uint32_t numParticles) const
         {
-            return pmacc::spearhed::numSCLatticeSites(n);
+            return numParticles;
         }
     };
 
     auto numParticlesToCreateArgs() const
     {
-        return std::make_tuple(countsArray());
+        return std::make_tuple(pmacc::spearhed::checkedParticleCount(shape()));
     }
 
-    /// Use SC's array overload -- picks the right operator() from the arg type
     using PlaceParticle = pmacc::spearhed::SC<spearhed::CS>;
 
     auto placeParticleArgs() const
     {
-        return std::make_tuple(countsArray());
+        return std::make_tuple(shape());
     }
 
     template<typename>
@@ -278,6 +298,14 @@ TEST_CASE_METHOD(
     {
         auto setup = SCLatticeSetup{};
         spearhed::InitRegions{}(*deviceHeap, setup);
+
+        // Verify the helpers give the expected product on the host
+        auto const shape = setup.shape();
+        auto const expectedParticles = pmacc::spearhed::checkedParticleCount(shape);
+        // For domain [0,3]x[0,1]x[0,0.5] and spacing=1.0:
+        //   n_x = round(3/1) = 3, n_y = round(1/1) = 1,
+        //   n_z = round(0.5/1) = 1 -> total = 3 particles
+        REQUIRE(expectedParticles == 3u);
 
         spearhed::InitParticles{}(setup);
 

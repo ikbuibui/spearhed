@@ -134,8 +134,8 @@ namespace spearhed
             {
                 using x_t = std::tuple_element_t<0, typename CS::tags>;
                 Real const s = (particleRegion.volume.max[x_t{}] <= Real{0}) ? dxLeft : dxRight;
-                auto const counts = pmacc::spearhed::computeSCCellCounts(particleRegion.volume, s);
-                return pmacc::spearhed::numSCLatticeSites(counts);
+                auto const shape = pmacc::spearhed::makeSCShapeForTargetSpacing(particleRegion.volume, s);
+                return static_cast<uint32_t>(shape.numSites());
             }
         };
 
@@ -162,8 +162,8 @@ namespace spearhed
                 Real const P = isLeft ? pressureLeft : pressureRight;
                 Real const s = isLeft ? dxLeft : dxRight;
 
-                auto const counts = pmacc::spearhed::computeSCCellCounts(aabb, s);
-                pmacc::spearhed::SC<CS>{}(worker, particle, particleRegion, globalParticleIdx, counts);
+                auto const shape = pmacc::spearhed::makeSCShapeForTargetSpacing(aabb, s);
+                pmacc::spearhed::SC<CS>{}(worker, particle, particleRegion, globalParticleIdx, shape);
 
                 pmacc::spearhed::for_each_tag<CS>([&](auto axisTag) { particle[vel][axisTag] = Real{0}; });
 
