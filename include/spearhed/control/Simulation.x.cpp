@@ -39,6 +39,7 @@
 #include <pmacc/dimensions/Definition.hpp>
 #include <pmacc/particles/memory/buffers/MallocMCBuffer.hpp>
 
+#include <functional>
 #include <iostream>
 #include <optional>
 #include <sstream>
@@ -258,10 +259,20 @@ namespace spearhed
         // Initialize fields
 
         // load density description from param file. How is this independent from the domain size?
-        //
         auto setup = Setup{};
 
-        std::cout << "hello SPH! domain min: " << setup.domain.min << " max: " << setup.domain.max << std::endl;
+        auto const& gridController = pmacc::Environment<simDim>::get().GridController();
+        if(gridController.getGlobalRank() == 0)
+        {
+            std::cout << "hello SPH! domain min: " << setup.domain.min << " max: " << setup.domain.max << std::endl;
+
+            // The generic lambda makes the optional member lookup dependent, so setups without it still compile.
+            [](auto const& configuredSetup)
+            {
+                if constexpr(requires { configuredSetup.printStartupDiagnostics(); })
+                    configuredSetup.printStartupDiagnostics();
+            }(setup);
+        }
 
         InitRegions{}(*deviceHeap, setup);
         InitParticles{}(setup);
