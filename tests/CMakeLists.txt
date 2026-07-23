@@ -102,6 +102,9 @@ target_include_directories(
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/spearhed/unit/BoundaryConditions/param
 )
 
+# SodSetup exercises the shared validation setup header directly.
+target_include_directories(unit_test_spearhed_SodSetup_SodSetup PRIVATE ${CMAKE_SOURCE_DIR})
+
 ## Share a setup among selected tests via the spearhed test-setup directory.
 set(_setup_dir ${CMAKE_CURRENT_SOURCE_DIR}/spearhed/unit/setups)
 foreach(

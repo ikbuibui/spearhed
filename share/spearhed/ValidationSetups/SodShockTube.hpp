@@ -35,6 +35,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -53,7 +54,18 @@ namespace spearhed
         };
 
         using FluidPlan = pmacc::spearhed::EqualMassSCPlan<CS, 2u>;
-        using FluidShapes = std::array<pmacc::spearhed::SCShape<CS>, 2u>;
+
+        /** Checked subset of a regional plan passed to fluid initialization kernels. */
+        struct FluidLattice
+        {
+            pmacc::spearhed::SCShape<CS> shape;
+            uint32_t numParticles;
+        };
+
+        using FluidLattices = std::array<FluidLattice, 2u>;
+        using FluidVolumes = std::array<pmacc::spearhed::AABB<CS>, 2u>;
+
+        static_assert(std::is_trivially_copyable_v<FluidLattice>);
 
         constexpr Real wallThickness()
         {
@@ -88,9 +100,6 @@ namespace spearhed
 
         /**
          * Split a domain at a global x coordinate while preserving its origin.
-         *
-         * @throws std::invalid_argument if the split is not strictly inside the
-         *         domain's x extent
          */
         inline std::array<pmacc::spearhed::AABB<CS>, 2u> splitAABB(
             pmacc::spearhed::AABB<CS> const& domain,
@@ -98,6 +107,7 @@ namespace spearhed
         {
             using x_t = std::tuple_element_t<0, typename CS::tags>;
             auto const localSplit = splitPosition - domain.origin[x_t{}];
+
             if(!(domain.min[x_t{}] < localSplit && localSplit < domain.max[x_t{}]))
                 throw std::invalid_argument("Sod discontinuity must lie strictly inside the fluid domain");
 
@@ -120,6 +130,19 @@ namespace spearhed
                 {regions[1], static_cast<double>(initialConditions.densityRight)},
             }};
             return pmacc::spearhed::makeEqualMassSCPlan(inputs, targetFluidParticles);
+        }
+
+        inline FluidLattices makeFluidLattices(FluidPlan const& fluidPlan)
+        {
+            FluidLattices lattices{};
+            for(std::size_t region = 0u; region < lattices.size(); ++region)
+            {
+                auto const numParticles = pmacc::spearhed::checkedParticleCount(fluidPlan.regions[region].shape);
+                if(numParticles != fluidPlan.regions[region].numParticles)
+                    throw std::logic_error("Sod fluid plan shape and particle count disagree");
+                lattices[region] = {fluidPlan.regions[region].shape, numParticles};
+            }
+            return lattices;
         }
 
         inline auto fullDomain(pmacc::spearhed::AABB<CS> const& fluidDomain)
@@ -191,10 +214,10 @@ namespace spearhed
             DINLINE constexpr uint32_t operator()(
                 [[maybe_unused]] auto const& worker,
                 auto const& particleRegion,
-                FluidShapes const& shapes,
+                FluidLattices const& lattices,
                 Real splitPosition) const
             {
-                return shapes[fluidRegionIndex(particleRegion, splitPosition)].numSites();
+                return lattices[fluidRegionIndex(particleRegion, splitPosition)].numParticles;
             }
         };
 
@@ -205,17 +228,18 @@ namespace spearhed
                 auto& particle,
                 auto const& particleRegion,
                 uint32_t globalParticleIdx,
-                FluidShapes const& shapes,
+                FluidLattices const& lattices,
                 Real splitPosition,
                 Real particleMass,
                 InitialConditions const& initialConditions) const
             {
                 auto const region = fluidRegionIndex(particleRegion, splitPosition);
+                auto const& lattice = lattices[region];
                 auto const rho = (region == 0u) ? initialConditions.densityLeft : initialConditions.densityRight;
                 auto const pressure
                     = (region == 0u) ? initialConditions.pressureLeft : initialConditions.pressureRight;
 
-                pmacc::spearhed::SC<CS>{}(worker, particle, particleRegion, globalParticleIdx, shapes[region]);
+                pmacc::spearhed::SC<CS>{}(worker, particle, particleRegion, globalParticleIdx, lattice.shape);
                 pmacc::spearhed::for_each_tag<CS>([&](auto axisTag) { particle[vel][axisTag] = Real{0}; });
 
                 particle[mass] = particleMass;
@@ -274,8 +298,10 @@ namespace spearhed
             using NumParticlesToCreate = PlannedNumParticles;
             using PlaceParticle = PlannedPlaceParticle;
 
-            InteriorBlock(FluidPlan fluidPlan, Real splitPosition, InitialConditions initialConditions)
-                : m_fluidPlan(std::move(fluidPlan))
+            InteriorBlock(FluidPlan const& fluidPlan, Real splitPosition, InitialConditions initialConditions)
+                : m_volumes{fluidPlan.regions[0].volume, fluidPlan.regions[1].volume}
+                , m_lattices(makeFluidLattices(fluidPlan))
+                , m_particleMass(fluidPlan.particleMass)
                 , m_splitPosition(splitPosition)
                 , m_initialConditions(initialConditions)
             {
@@ -283,28 +309,24 @@ namespace spearhed
 
             auto numParticlesToCreateArgs() const
             {
-                return std::make_tuple(fluidShapes(), m_splitPosition);
+                return std::make_tuple(m_lattices, m_splitPosition);
             }
 
             auto placeParticleArgs() const
             {
-                return std::make_tuple(fluidShapes(), m_splitPosition, m_fluidPlan.particleMass, m_initialConditions);
+                return std::make_tuple(m_lattices, m_splitPosition, m_particleMass, m_initialConditions);
             }
 
             template<typename>
             void addRegions(std::vector<pmacc::spearhed::AABB<CS>>& out) const
             {
-                out.push_back(m_fluidPlan.regions[0].volume);
-                out.push_back(m_fluidPlan.regions[1].volume);
+                out.insert(out.end(), m_volumes.begin(), m_volumes.end());
             }
 
         private:
-            [[nodiscard]] FluidShapes fluidShapes() const
-            {
-                return {m_fluidPlan.regions[0].shape, m_fluidPlan.regions[1].shape};
-            }
-
-            FluidPlan m_fluidPlan;
+            FluidVolumes m_volumes;
+            FluidLattices m_lattices;
+            Real m_particleMass;
             Real m_splitPosition;
             InitialConditions m_initialConditions;
         };
