@@ -26,6 +26,7 @@
 #include "spmacc/particles/algorithms/FrameIndex.hpp"
 #include "spmacc/particles/algorithms/InteractParticles.hpp"
 #include "spmacc/particles/regions/NeighbourBundle.hpp"
+#include "spmacc/particles/regions/NeighbourRegions.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
@@ -33,17 +34,16 @@
 #include <alpaka/alpaka.hpp>
 #include <alpaka/core/Positioning.hpp>
 
+#include <tuple>
+#include <vector>
+
 #include <catch2/catch_test_macros.hpp>
 
 static constexpr unsigned TEST_DIM = spearhed::simDim;
 
-//! Default (no stage(), no prepare()) functor: counts every non-self pair.
+//! Default (no stage(), no prepare(), or attribute declarations) functor: counts every non-self pair.
 struct InteractionCountFunc
 {
-    static constexpr auto neighbourReads = ll::makeSet();
-    static constexpr auto ownReads = ll::makeSet();
-    static constexpr auto ownAccumulate = ll::makeSet();
-
     HDINLINE constexpr void operator()(
         auto& worker,
         auto const& /*ownRead*/,
@@ -77,8 +77,6 @@ struct StageDerivedFunc
 {
     // Read contract: the global attributes stage() may read.
     static constexpr auto neighbourReads = ll::makeSet(spearhed::particleId);
-    static constexpr auto ownReads = ll::makeSet();
-    static constexpr auto ownAccumulate = ll::makeSet();
 
     //! Derived neighbour record staged once per neighbour.
     using StagedRecord = ll::Record<ll::Field<stage_test::derivedId_t, uint64_t>>;
@@ -108,6 +106,60 @@ struct StageDerivedFunc
 };
 
 using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
+
+namespace
+{
+    /** Three particles share one broad-phase region; only the first two are within the exact radius. */
+    struct ParticleCullSetup
+    {
+        using Species = pmacc::spearhed::species::Default;
+
+        pmacc::spearhed::AABB<spearhed::CS> domain{{0.0f, 0.0f, 0.0f}, {-1.0f, -1.0f, -1.0f}, {3.0f, 1.0f, 1.0f}};
+
+        auto blocks() const
+        {
+            return std::tie(*this);
+        }
+
+        struct NumParticlesToCreate
+        {
+            DINLINE constexpr uint32_t operator()(auto&, auto&, uint32_t) const
+            {
+                return 3u;
+            }
+        };
+
+        auto numParticlesToCreateArgs() const
+        {
+            return std::make_tuple(0u);
+        }
+
+        struct PlaceParticle
+        {
+            DINLINE constexpr void operator()(auto const&, auto& particle, auto const&, uint32_t particleIdx) const
+            {
+                using namespace pmacc::spearhed::tags;
+
+                particle[relativePos][x] = particleIdx == 0u
+                                               ? spearhed::Real{0.0f}
+                                               : (particleIdx == 1u ? spearhed::Real{0.5f} : spearhed::Real{2.0f});
+                particle[relativePos][y] = spearhed::Real{0.0f};
+                particle[relativePos][z] = spearhed::Real{0.0f};
+            }
+        };
+
+        auto placeParticleArgs() const
+        {
+            return std::make_tuple();
+        }
+
+        template<typename>
+        void addRegions(std::vector<pmacc::spearhed::AABB<spearhed::CS>>& regions) const
+        {
+            regions.push_back(domain);
+        }
+    };
+} // namespace
 
 /**
  * Helper: build an all-to-all NeighbourEntry for @p prBuf with @p numRegions regions.
@@ -210,6 +262,67 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
         INFO("Expected Interactions: " << expectedInteractions);
 
         REQUIRE(h_count == expectedInteractions);
+    }
+
+
+    SECTION("particle-level radius culling removes broad-phase false positives")
+    {
+        ParticleCullSetup setup;
+        spearhed::InitRegions{}(*deviceHeap, setup);
+        spearhed::InitParticles{}(setup);
+
+        // The one target region is necessarily a candidate for its one source region. At particle
+        // level, the directed 0 <-> 1 pairs are accepted and every pair involving particle 2 is
+        // outside the exact radius.
+        constexpr spearhed::Real interactionRadius{1.0f};
+        auto bundle = pmacc::spearhed::calculateNeighbours(*prBuf, interactionRadius, *prBuf);
+
+        pmacc::HostDeviceBuffer<uint64_t, 1> countBuffer(1u);
+        countBuffer.getHostBuffer().setValue(0u);
+        countBuffer.hostToDevice();
+
+        auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+        pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
+        pmacc::spearhed::interact(
+            sources,
+            *prBuf,
+            index,
+            interactionRadius,
+            InteractionCountFunc{},
+            countBuffer.getDeviceBuffer().getDataBox())
+            .waitForFinished();
+
+        countBuffer.deviceToHost();
+        REQUIRE(countBuffer.getHostBuffer().data()[0] == 2u);
+    }
+
+
+    SECTION("empty target and source buffers produce no interactions")
+    {
+        using PRBuf = pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>;
+        prBuf->create(0u);
+        PRBuf emptySource;
+        emptySource.create(0u);
+
+        auto bundle = pmacc::spearhed::calculateNeighbours(*prBuf, 1.0f, emptySource);
+        auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+        pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
+
+        pmacc::HostDeviceBuffer<uint64_t, 1> countBuffer(1u);
+        countBuffer.getHostBuffer().setValue(0u);
+        countBuffer.hostToDevice();
+
+        pmacc::spearhed::interact(
+            sources,
+            *prBuf,
+            index,
+            1.0f,
+            InteractionCountFunc{},
+            countBuffer.getDeviceBuffer().getDataBox())
+            .waitForFinished();
+
+        countBuffer.deviceToHost();
+        REQUIRE(countBuffer.getHostBuffer().data()[0] == 0u);
     }
 
 

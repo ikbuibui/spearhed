@@ -312,8 +312,57 @@ namespace pmacc::spearhed
         }
 
         /**
-         * @brief Compile-time helpers deriving the per-role SMEM/register records from the functor.
+         * @brief Resolve an interaction attribute set, defaulting an omitted declaration to empty.
+         *
+         * Interaction functors may independently declare @c neighbourReads, @c ownReads, and
+         * @c ownAccumulate as static constexpr ll::makeSet(...) members. An omitted member means
+         * that the functor needs no attributes for that role.
          */
+        template<typename Fn, typename = void>
+        struct NeighbourReadsSet
+        {
+            using type = decltype(ll::makeSet());
+        };
+
+        template<typename Fn>
+        struct NeighbourReadsSet<Fn, std::void_t<decltype(Fn::neighbourReads)>>
+        {
+            using type = std::remove_cvref_t<decltype(Fn::neighbourReads)>;
+        };
+
+        template<typename Fn>
+        using neighbour_reads_set_t = typename NeighbourReadsSet<Fn>::type;
+
+        template<typename Fn, typename = void>
+        struct OwnReadsSet
+        {
+            using type = decltype(ll::makeSet());
+        };
+
+        template<typename Fn>
+        struct OwnReadsSet<Fn, std::void_t<decltype(Fn::ownReads)>>
+        {
+            using type = std::remove_cvref_t<decltype(Fn::ownReads)>;
+        };
+
+        template<typename Fn>
+        using own_reads_set_t = typename OwnReadsSet<Fn>::type;
+
+        template<typename Fn, typename = void>
+        struct OwnAccumulateSet
+        {
+            using type = decltype(ll::makeSet());
+        };
+
+        template<typename Fn>
+        struct OwnAccumulateSet<Fn, std::void_t<decltype(Fn::ownAccumulate)>>
+        {
+            using type = std::remove_cvref_t<decltype(Fn::ownAccumulate)>;
+        };
+
+        template<typename Fn>
+        using own_accumulate_set_t = typename OwnAccumulateSet<Fn>::type;
+
         template<typename Record, typename Set>
         using neighbour_reads_record_t = ll::sub_record_from_set_t<Record, Set>;
 
@@ -377,9 +426,9 @@ namespace pmacc::spearhed
 
                 // Derive the SMEM cache and register records from the functor's declared tag sets.
                 using FnType = std::remove_cvref_t<decltype(fn)>;
-                using NeighbourReadsSet = std::remove_cvref_t<decltype(FnType::neighbourReads)>;
-                using OwnReadsSet = std::remove_cvref_t<decltype(FnType::ownReads)>;
-                using OwnAccumulateSet = std::remove_cvref_t<decltype(FnType::ownAccumulate)>;
+                using NeighbourReadsSet = neighbour_reads_set_t<FnType>;
+                using OwnReadsSet = own_reads_set_t<FnType>;
+                using OwnAccumulateSet = own_accumulate_set_t<FnType>;
 
                 using NbRecord = nb_cache_record_t<FnType, RecordType, NeighbourReadsSet>;
                 using PosRecord = position_record_t<RecordType>;
@@ -510,9 +559,9 @@ namespace pmacc::spearhed
 
                 // Derive the SMEM cache and register records from the functor's declared tag sets.
                 using FnType = std::remove_cvref_t<decltype(fn)>;
-                using NeighbourReadsSet = std::remove_cvref_t<decltype(FnType::neighbourReads)>;
-                using OwnReadsSet = std::remove_cvref_t<decltype(FnType::ownReads)>;
-                using OwnAccumulateSet = std::remove_cvref_t<decltype(FnType::ownAccumulate)>;
+                using NeighbourReadsSet = neighbour_reads_set_t<FnType>;
+                using OwnReadsSet = own_reads_set_t<FnType>;
+                using OwnAccumulateSet = own_accumulate_set_t<FnType>;
 
                 using NbRecord = nb_cache_record_t<FnType, RecordType, NeighbourReadsSet>;
                 using PosRecord = position_record_t<RecordType>;

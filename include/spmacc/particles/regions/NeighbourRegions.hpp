@@ -147,15 +147,18 @@ namespace pmacc::spearhed
             regionOffsets.getHostBuffer().setValue(0);
             regionOffsets.hostToDevice();
 
-            PMACC_LOCKSTEP_KERNEL(detail::FindNeighbourRegionsFunctor<detail::OpMode::Count>{})
-                .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numTargetRegions))(
-                    target.getDeviceDataBox(),
-                    numTargetRegions,
-                    sourcePRBuf.getDeviceDataBox(),
-                    numSourceRegions,
-                    regionOffsets.getDeviceBuffer().getDataBox(),
-                    nullptr,
-                    h);
+            if(numTargetRegions > 0)
+            {
+                PMACC_LOCKSTEP_KERNEL(detail::FindNeighbourRegionsFunctor<detail::OpMode::Count>{})
+                    .template config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numTargetRegions))(
+                        target.getDeviceDataBox(),
+                        numTargetRegions,
+                        sourcePRBuf.getDeviceDataBox(),
+                        numSourceRegions,
+                        regionOffsets.getDeviceBuffer().getDataBox(),
+                        nullptr,
+                        h);
+            }
 
             uint32_t const totalPairs = inclusiveScanOnHost(regionOffsets, numTargetRegions + 1);
 
