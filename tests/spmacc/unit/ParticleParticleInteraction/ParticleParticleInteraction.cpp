@@ -159,6 +159,56 @@ namespace
             regions.push_back(domain);
         }
     };
+
+    /** Two one-particle buckets whose charts differ but whose world positions are within the cutoff. */
+    struct TwoChartParticleSetup
+    {
+        using Species = pmacc::spearhed::species::Default;
+        pmacc::spearhed::AABB<spearhed::CS> domain{{0.0f, 0.0f, 0.0f}, {-1.0f, -1.0f, -1.0f}, {1.0f, 1.0f, 1.0f}};
+
+        auto blocks() const
+        {
+            return std::tie(*this);
+        }
+
+        struct NumParticlesToCreate
+        {
+            DINLINE constexpr uint32_t operator()(auto&, auto&, uint32_t) const
+            {
+                return 1u;
+            }
+        };
+
+        auto numParticlesToCreateArgs() const
+        {
+            return std::make_tuple(0u);
+        }
+
+        struct PlaceParticle
+        {
+            DINLINE constexpr void operator()(auto const&, auto& particle, auto const& region, uint32_t) const
+            {
+                using namespace pmacc::spearhed::tags;
+                auto const origin = region.spatial.chart.origin;
+                particle[relativePos][x]
+                    = origin[x] < spearhed::Real{105.0f} ? spearhed::Real{0.0f} : spearhed::Real{-1.0f};
+                particle[relativePos][y] = spearhed::Real{0.0f};
+                particle[relativePos][z] = spearhed::Real{0.0f};
+            }
+        };
+
+        auto placeParticleArgs() const
+        {
+            return std::make_tuple();
+        }
+
+        template<typename>
+        void addRegions(std::vector<pmacc::spearhed::AABB<spearhed::CS>>& regions) const
+        {
+            regions.push_back({{100.0f, 0.0f, 0.0f}, {-0.5f, -0.5f, -0.5f}, {0.5f, 0.5f, 0.5f}});
+            regions.push_back({{110.0f, 0.0f, 0.0f}, {-1.5f, -0.5f, -0.5f}, {-0.5f, 0.5f, 0.5f}});
+        }
+    };
 } // namespace
 
 /**
@@ -296,6 +346,34 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
         REQUIRE(countBuffer.getHostBuffer().data()[0] == 2u);
     }
 
+
+    SECTION("interaction staging translates source positions between non-zero charts")
+    {
+        TwoChartParticleSetup setup;
+        spearhed::InitRegions{}(*deviceHeap, setup);
+        spearhed::InitParticles{}(setup);
+
+        constexpr spearhed::Real interactionRadius{10.0f};
+        auto bundle = pmacc::spearhed::calculateNeighbours(*prBuf, interactionRadius, *prBuf);
+        auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+        pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
+
+        pmacc::HostDeviceBuffer<uint64_t, 1> countBuffer(1u);
+        countBuffer.getHostBuffer().setValue(0u);
+        countBuffer.hostToDevice();
+        pmacc::spearhed::interact(
+            sources,
+            *prBuf,
+            index,
+            interactionRadius,
+            InteractionCountFunc{},
+            countBuffer.getDeviceBuffer().getDataBox())
+            .waitForFinished();
+
+        countBuffer.deviceToHost();
+        // world positions are (100, 0, 0) and (109, 0, 0), so both directed non-self pairs are accepted.
+        REQUIRE(countBuffer.getHostBuffer().data()[0] == 2u);
+    }
 
     SECTION("empty target and source buffers produce no interactions")
     {

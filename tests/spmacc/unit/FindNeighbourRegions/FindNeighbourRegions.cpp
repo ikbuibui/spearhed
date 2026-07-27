@@ -24,6 +24,8 @@
 #include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
 #include "spmacc/particles/regions/NeighbourRegions.hpp"
+#include "spmacc/particles/spatial/RegionChart.hpp"
+#include "spmacc/particles/spatial/WorldAABB.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
@@ -51,20 +53,24 @@ TEST_CASE_METHOD(ParticleFixture, "CalculateNeighbourRegions Validation", "[inte
         prBuf->buffer->deviceToHost();
         auto hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
 
+        hostRegions(0).spatial.chart.origin = {10.0f, 20.0f, 30.0f};
+        hostRegions(1).spatial.chart.origin = {100.0f, 200.0f, 300.0f};
+        hostRegions(2).spatial.chart.origin = {-10.0f, -20.0f, -30.0f};
+
         pmacc::spearhed::for_each_tag<spearhed::CS>(
             [&](auto tag)
             {
-                // Region 0: [0.0, 1.0]
-                hostRegions(0).volume.min[tag] = 0.0f;
-                hostRegions(0).volume.max[tag] = 1.0f;
+                // Region 0: world-space [0.0, 1.0]
+                hostRegions(0).spatial.occupancy.min[tag] = 0.0f;
+                hostRegions(0).spatial.occupancy.max[tag] = 1.0f;
 
                 // Region 1: [1.5, 2.5]
-                hostRegions(1).volume.min[tag] = 1.5f;
-                hostRegions(1).volume.max[tag] = 2.5f;
+                hostRegions(1).spatial.occupancy.min[tag] = 1.5f;
+                hostRegions(1).spatial.occupancy.max[tag] = 2.5f;
 
                 // Region 2: [4.0, 5.0]
-                hostRegions(2).volume.min[tag] = 4.0f;
-                hostRegions(2).volume.max[tag] = 5.0f;
+                hostRegions(2).spatial.occupancy.min[tag] = 4.0f;
+                hostRegions(2).spatial.occupancy.max[tag] = 5.0f;
             });
 
         prBuf->buffer->hostToDevice();
@@ -105,18 +111,41 @@ TEST_CASE_METHOD(ParticleFixture, "CalculateNeighbourRegions Validation", "[inte
     }
 }
 
-TEST_CASE("relativePos uses the region origin as its chart origin", "[particles][position][contract]")
+TEST_CASE("relativePos uses the explicit region chart", "[particles][position][contract]")
 {
-    using AABB = pmacc::spearhed::AABB<spearhed::CS>;
-    using LocalPosition = AABB::Vec;
+    using Chart = pmacc::spearhed::RegionChart<spearhed::CS>;
+    using LocalPosition = Chart::Vec;
 
-    // Current contract: relativePos is chart-local, while getPosition reconstructs world position.
-    AABB const region{{10.0f, 20.0f, 30.0f}, {-5.0f, -5.0f, -5.0f}, {5.0f, 5.0f, 5.0f}};
+    Chart const chart{{10.0f, 20.0f, 30.0f}};
     LocalPosition const relativePos{1.0f, 2.0f, 3.0f};
-    auto const worldPosition = region.getPosition(relativePos);
+    auto const worldPosition = chart.toWorld(relativePos);
 
     using namespace pmacc::spearhed::tags;
     REQUIRE(worldPosition[x] == 11.0f);
     REQUIRE(worldPosition[y] == 22.0f);
     REQUIRE(worldPosition[z] == 33.0f);
+}
+
+TEST_CASE("WorldAABB has explicit empty and world-space operations", "[particles][bounds][contract]")
+{
+    using Bounds = pmacc::spearhed::WorldAABB<spearhed::CS>;
+    using Point = Bounds::Pnt;
+
+    Bounds bounds;
+    Bounds const otherEmpty;
+    Bounds const finiteBounds{Point{0.0f, 0.0f, 0.0f}, Point{1.0f, 1.0f, 1.0f}};
+    REQUIRE(bounds.empty());
+    REQUIRE(bounds.expand(1.0f).empty());
+    REQUIRE_FALSE(intersects(bounds, finiteBounds));
+    bounds.extend(otherEmpty);
+    REQUIRE(bounds.empty());
+
+    bounds.extend(Point{1.0f, 2.0f, 3.0f});
+    bounds.extend(Point{4.0f, 5.0f, 6.0f});
+    bounds.extend(Bounds{Point{-2.0f, 2.0f, 3.0f}, Point{-1.0f, 5.0f, 6.0f}});
+    REQUIRE_FALSE(bounds.empty());
+
+    auto const expanded = bounds.expand(1.0f);
+    REQUIRE(intersects(expanded, Bounds{Point{0.0f, 0.0f, 0.0f}, Point{2.0f, 3.0f, 4.0f}}));
+    REQUIRE_FALSE(intersects(expanded, Bounds{Point{6.0f, 0.0f, 0.0f}, Point{7.0f, 1.0f, 1.0f}}));
 }

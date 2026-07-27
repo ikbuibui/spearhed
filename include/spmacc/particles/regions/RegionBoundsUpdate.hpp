@@ -53,12 +53,11 @@ namespace pmacc::spearhed
             for(int regionIdx = blockIdx; regionIdx < numParticleRegions; regionIdx += worker.gridDomSize())
             {
                 auto& region = prDeviceBox[regionIdx];
-                using VolumeType = std::remove_cvref_t<decltype(region.volume)>;
+                using BoundsType = std::remove_cvref_t<decltype(region.spatial.occupancy)>;
 
-                // Thread-Local Accumulation: walk the region's frames sequentially with the
-                // hierarchy iterator, distributing each frame's live slots across the block with
-                // the lockstep combinator (same distribution as the previous hand-rolled walk).
-                VolumeType localBounds;
+                // Particle coordinates are chart-local, while occupancy is always world-space.
+                // Keep the chart immutable: material membership does not rebase particles after motion.
+                BoundsType localBounds;
 
                 // DeviceHeapAccess{} instead of the deviceHeap instance: odr-using the
                 // namespace-scope constexpr variable from device code is ill-formed under nvcc.
@@ -71,12 +70,13 @@ namespace pmacc::spearhed
                         lockstepForEachParticle(
                             worker,
                             frame,
-                            [&](auto particle) { localBounds.extend(particle[tags::relativePos].get()); });
+                            [&](auto particle)
+                            { localBounds.extend(region.spatial.chart.toWorld(particle[tags::relativePos].get())); });
                     });
 
                 // Block-Wide Reduction
                 // Allocate shared memory for the reduction tree
-                PMACC_SMEM(worker, s_bounds, VolumeType[MaxBlockSize]);
+                PMACC_SMEM(worker, s_bounds, BoundsType[MaxBlockSize]);
 
                 // Load thread-local results into shared memory
                 if(threadIdx < MaxBlockSize)
@@ -98,7 +98,7 @@ namespace pmacc::spearhed
 
                 if(threadIdx == 0)
                 {
-                    region.volume = s_bounds[0];
+                    region.spatial.occupancy = s_bounds[0];
                 }
 
                 // Ensure write visibility before next iteration
@@ -152,7 +152,7 @@ namespace pmacc::spearhed
                 //     // Write final result to global memory
                 //     if(laneIdx == 0)
                 //     {
-                //         region.volume = localBounds;
+                //         region.spatial.occupancy = localBounds;
                 //     }
                 // }
 

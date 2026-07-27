@@ -47,6 +47,7 @@ using RelPosType = pmacc::spearhed::Vec<CS, pmacc::spearhed::ValueStorage<CS>>;
 constexpr RelPosType expectedMin{0.125f, 0.125f, 0.125f};
 constexpr RelPosType expectedMax{0.875f, 0.875f, 0.875f};
 constexpr RelPosType defaultPos{0.5f, 0.5f, 0.5f};
+constexpr RelPosType chartOrigin{10.0f, 20.0f, 30.0f};
 
 // Functor to set specific particle positions:
 // - ID 0 -> Min corner
@@ -97,7 +98,35 @@ TEST_CASE_METHOD(ParticleFixture, "UpdateRegionBounds Validation", "[integration
     pmacc::spearhed::for_each_tag<spearhed::CS>(
         [&](auto tag)
         {
-            REQUIRE(region.volume.min[tag] == expectedMin[tag]);
-            REQUIRE(region.volume.max[tag] == expectedMax[tag]);
+            REQUIRE(region.spatial.occupancy.min[tag] == expectedMin[tag]);
+            REQUIRE(region.spatial.occupancy.max[tag] == expectedMax[tag]);
+        });
+}
+
+TEST_CASE_METHOD(
+    ParticleFixture,
+    "UpdateRegionBounds reduces world positions without rebasing the chart",
+    "[integration][particles][bounds]")
+{
+    auto setup = spearhed::EmptyNRegions<1>{};
+    spearhed::InitRegions{}(*deviceHeap, setup);
+
+    auto hostRegions = prBuf->buffer->getHostBuffer().getDataBox();
+    hostRegions(0).spatial.chart.origin = {10.0f, 20.0f, 30.0f};
+    prBuf->buffer->hostToDevice();
+
+    spearhed::InitParticles{}(setup);
+    pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, SetPosFunctor{});
+    pmacc::spearhed::UpdateVolumes<spearhed::PRType>{}();
+
+    prBuf->buffer->deviceToHost();
+    auto const dataBox = prBuf->buffer->getHostBuffer().getDataBox();
+    auto const& region = dataBox(0);
+    pmacc::spearhed::for_each_tag<spearhed::CS>(
+        [&](auto tag)
+        {
+            REQUIRE(region.spatial.chart.origin[tag] == chartOrigin[tag]);
+            REQUIRE(region.spatial.occupancy.min[tag] == region.spatial.chart.origin[tag] + expectedMin[tag]);
+            REQUIRE(region.spatial.occupancy.max[tag] == region.spatial.chart.origin[tag] + expectedMax[tag]);
         });
 }

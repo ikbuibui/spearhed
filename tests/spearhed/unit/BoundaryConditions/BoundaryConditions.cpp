@@ -172,11 +172,12 @@ namespace
                 DINLINE constexpr uint32_t operator()(auto&, auto& particleRegion, uint32_t) const
                 {
                     using namespace pmacc::spearhed::tags;
-                    auto const& aabb = particleRegion.volume;
+                    auto const localMin = particleRegion.spatial.localMin();
+                    auto const localMax = particleRegion.spatial.localMax();
                     auto const nx
-                        = static_cast<uint32_t>((aabb.max[x] - aabb.min[x]) / sc_spacing + spearhed::Real{0.5});
+                        = static_cast<uint32_t>((localMax[x] - localMin[x]) / sc_spacing + spearhed::Real{0.5});
                     auto const ny
-                        = static_cast<uint32_t>((aabb.max[y] - aabb.min[y]) / sc_spacing + spearhed::Real{0.5});
+                        = static_cast<uint32_t>((localMax[y] - localMin[y]) / sc_spacing + spearhed::Real{0.5});
                     return nx * ny;
                 }
             };
@@ -197,16 +198,17 @@ namespace
                     using namespace pmacc::spearhed::tags;
                     using namespace spearhed::tags;
 
-                    auto const& aabb = particleRegion.volume;
+                    auto const localMin = particleRegion.spatial.localMin();
+                    auto const localMax = particleRegion.spatial.localMax();
                     uint32_t const nx
-                        = static_cast<uint32_t>((aabb.max[x] - aabb.min[x]) / sc_spacing + spearhed::Real{0.5});
+                        = static_cast<uint32_t>((localMax[x] - localMin[x]) / sc_spacing + spearhed::Real{0.5});
                     uint32_t const ix = globalParticleIdx % nx;
                     uint32_t const iy = globalParticleIdx / nx;
 
                     particle[relativePos][x]
-                        = aabb.min[x] + (static_cast<spearhed::Real>(ix) + spearhed::Real{0.5}) * sc_spacing;
+                        = localMin[x] + (static_cast<spearhed::Real>(ix) + spearhed::Real{0.5}) * sc_spacing;
                     particle[relativePos][y]
-                        = aabb.min[y] + (static_cast<spearhed::Real>(iy) + spearhed::Real{0.5}) * sc_spacing;
+                        = localMin[y] + (static_cast<spearhed::Real>(iy) + spearhed::Real{0.5}) * sc_spacing;
 
                     particle[mass] = particleMass;
                     particle[density] = rho0;
@@ -286,9 +288,10 @@ namespace
         DINLINE constexpr void operator()(auto const&, auto& particle, auto const& region, uint32_t) const
         {
             using namespace pmacc::spearhed::tags;
-            auto const& aabb = region.volume;
+            auto const localMin = region.spatial.localMin();
+            auto const localMax = region.spatial.localMax();
             pmacc::spearhed::for_each_tag<spearhed::CS>(
-                [&](auto tag) { particle[relativePos][tag] = (aabb.min[tag] + aabb.max[tag]) * spearhed::Real{0.5}; });
+                [&](auto tag) { particle[relativePos][tag] = (localMin[tag] + localMax[tag]) * spearhed::Real{0.5}; });
         }
     };
 

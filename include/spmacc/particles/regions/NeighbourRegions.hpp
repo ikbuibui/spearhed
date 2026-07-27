@@ -67,14 +67,14 @@ namespace pmacc::spearhed
                 auto const numWorkers = worker.numWorkers();
 
                 auto const& region = targetPRDeviceBox[blockIdx];
-                auto const searchVolume = region.volume.expand(smoothingLength);
+                auto const searchVolume = region.spatial.occupancy.expand(smoothingLength);
 
                 if constexpr(mode == OpMode::Count)
                 {
                     unsigned int localCount = 0;
                     for(int otherIdx = threadIdx; otherIdx < numSourceRegions; otherIdx += numWorkers)
                     {
-                        if(intersects(searchVolume, sourcePRDeviceBox[otherIdx].volume))
+                        if(intersects(searchVolume, sourcePRDeviceBox[otherIdx].spatial.occupancy))
                             localCount++;
                     }
 
@@ -101,7 +101,7 @@ namespace pmacc::spearhed
 
                     for(int otherIdx = threadIdx; otherIdx < numSourceRegions; otherIdx += numWorkers)
                     {
-                        if(intersects(searchVolume, sourcePRDeviceBox[otherIdx].volume))
+                        if(intersects(searchVolume, sourcePRDeviceBox[otherIdx].spatial.occupancy))
                         {
                             unsigned int pos
                                 = alpaka::atomicAdd(worker.getAcc(), &s_writePtr, 1u, ::alpaka::hierarchy::Threads{});

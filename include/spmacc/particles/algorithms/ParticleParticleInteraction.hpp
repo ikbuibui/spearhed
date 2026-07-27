@@ -168,8 +168,8 @@ namespace pmacc::spearhed
         template<typename OV, typename NV, typename NFP, typename R2>
         struct NeighbourFrameCtx
         {
-            OV ownVolume;
-            NV neighbourVolume;
+            OV ownChart;
+            NV neighbourChart;
             NFP neighbourFramePtr;
             R2 radius2;
         };
@@ -224,15 +224,15 @@ namespace pmacc::spearhed
             auto& regs,
             auto&... args)
         {
-            using CS = typename std::remove_cvref_t<decltype(frameCtx.ownVolume)>::Vec::CS;
+            using CS = typename std::remove_cvref_t<decltype(frameCtx.ownChart)>::Vec::CS;
             using Axis = typename CS::T_Axis;
             using DistVec = Vec<CS, ValueStorage<CS>>;
             using FnType = std::remove_cvref_t<decltype(fn)>;
             constexpr bool hasStage = HasStageHook<FnType>;
 
             // Phase 1: cooperatively stage neighbours (one slot per worker, no compaction)
-            // Origin offset baked into every staged position so the inner loop skips getPosition().
-            DistVec const originShift = frameCtx.neighbourVolume.origin - frameCtx.ownVolume.origin;
+            // Source-chart translation expressed in the target chart, baked into staged positions.
+            DistVec const sourceChartOffsetInTarget = frameCtx.neighbourChart.origin - frameCtx.ownChart.origin;
             // Large finite sentinel: sentinel*sentinel overflows to +inf so the cull rejects it.
             constexpr Axis sentinel = std::numeric_limits<Axis>::max() / Axis{4};
             forEachSlot(
@@ -251,7 +251,10 @@ namespace pmacc::spearhed
                         auto const relView = nParticle[tags::relativePos].get();
                         pmacc::spearhed::for_each_tag<CS>(
                             [&](auto tag)
-                            { smem.posCache[slot][tags::relativePos][tag] = relView[tag] + originShift[tag]; });
+                            {
+                                smem.posCache[slot][tags::relativePos][tag]
+                                    = relView[tag] + sourceChartOffsetInTarget[tag];
+                            });
                     }
                     else
                     {
@@ -419,9 +422,9 @@ namespace pmacc::spearhed
                 auto& region = targetPRDeviceBox[rIdx];
                 auto& frameList = region.particleFrameList;
                 using FrameType = typename std::remove_reference_t<decltype(frameList)>::FrameType;
-                using VolumeType = typename std::remove_reference_t<decltype(region.volume)>;
+                using MetadataType = typename std::remove_reference_t<decltype(region.spatial)>;
                 using RecordType = typename FrameType::ParticleRecord;
-                using CS = typename VolumeType::Vec::CS;
+                using CS = typename MetadataType::Chart::Vec::CS;
                 constexpr uint32_t frameSize = FrameType::frameSize;
 
                 // Derive the SMEM cache and register records from the functor's declared tag sets.
@@ -448,7 +451,7 @@ namespace pmacc::spearhed
                 PMACC_SMEM(worker, posCache, PosCacheType);
 
                 memory::FramePointer const ownFramePtr{framePtrsBox[blockIdx]};
-                VolumeType const ownVolume = region.volume;
+                auto const ownChart = region.spatial.chart;
 
                 auto forEachSlot = pmacc::lockstep::makeForEach<frameSize>(worker);
 
@@ -484,7 +487,7 @@ namespace pmacc::spearhed
                     for(auto it = neighbourFrameList.begin(); it != neighbourFrameList.end(); ++it)
                     {
                         memory::FramePointer const neighbourFramePtr{&*it};
-                        VolumeType const neighbourVolume = neighbourRegion.volume;
+                        auto const neighbourChart = neighbourRegion.spatial.chart;
                         // Each live frame is a unique heap allocation belonging to exactly one
                         // region of one buffer, so equal frame pointers already identify the same
                         // frame (same region, same buffer).
@@ -495,7 +498,7 @@ namespace pmacc::spearhed
                         auto regBlock = detail::OwnRegisterBlock{ownRelVar, ownReadsVar, ownAccVar, validVar, prepVar};
                         auto smemCaches = detail::SmemCaches{posCache, nbCache};
                         auto frameCtx
-                            = detail::NeighbourFrameCtx{ownVolume, neighbourVolume, neighbourFramePtr, radius2};
+                            = detail::NeighbourFrameCtx{ownChart, neighbourChart, neighbourFramePtr, radius2};
                         interactWithNeighbourFrame<frameSize, ValidParticlePredicate, hasPrepare>(
                             worker,
                             forEachSlot,
@@ -552,9 +555,9 @@ namespace pmacc::spearhed
                 auto& region = targetPRDeviceBox[rIdx];
                 auto& frameList = region.particleFrameList;
                 using FrameType = typename std::remove_reference_t<decltype(frameList)>::FrameType;
-                using VolumeType = typename std::remove_reference_t<decltype(region.volume)>;
+                using MetadataType = typename std::remove_reference_t<decltype(region.spatial)>;
                 using RecordType = typename FrameType::ParticleRecord;
-                using CS = typename VolumeType::Vec::CS;
+                using CS = typename MetadataType::Chart::Vec::CS;
                 constexpr uint32_t frameSize = FrameType::frameSize;
 
                 // Derive the SMEM cache and register records from the functor's declared tag sets.
@@ -582,7 +585,7 @@ namespace pmacc::spearhed
                 PMACC_SMEM(worker, posCache, PosCacheType);
 
                 memory::FramePointer const ownFramePtr{framePtrsBox[blockIdx]};
-                VolumeType const ownVolume = region.volume;
+                auto const ownChart = region.spatial.chart;
 
                 auto forEachSlot = pmacc::lockstep::makeForEach<frameSize>(worker);
 
@@ -623,7 +626,7 @@ namespace pmacc::spearhed
                             for(auto it = neighbourFrameList.begin(); it != neighbourFrameList.end(); ++it)
                             {
                                 memory::FramePointer const neighbourFramePtr{&*it};
-                                VolumeType const neighbourVolume = neighbourRegion.volume;
+                                auto const neighbourChart = neighbourRegion.spatial.chart;
                                 // Equal frame pointers identify the frames as the same.
                                 bool const isSelfFrame
                                     = (static_cast<void const*>(ownFramePtr.operator->())
@@ -632,11 +635,8 @@ namespace pmacc::spearhed
                                 auto regBlock
                                     = detail::OwnRegisterBlock{ownRelVar, ownReadsVar, ownAccVar, validVar, prepVar};
                                 auto smemCaches = detail::SmemCaches{posCache, nbCache};
-                                auto frameCtx = detail::NeighbourFrameCtx{
-                                    ownVolume,
-                                    neighbourVolume,
-                                    neighbourFramePtr,
-                                    radius2};
+                                auto frameCtx
+                                    = detail::NeighbourFrameCtx{ownChart, neighbourChart, neighbourFramePtr, radius2};
                                 interactWithNeighbourFrame<frameSize, ValidParticlePredicate, hasPrepare>(
                                     worker,
                                     forEachSlot,
