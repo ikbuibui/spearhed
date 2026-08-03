@@ -11,8 +11,13 @@
 
 #pragma once
 
+#include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 #include "spmacc/particles/regions/RegionRole.hpp"
+#include "spmacc/particles/spatial/MaterialAabbDecomposition.hpp"
 
+#include <pmacc/Environment.hpp>
+
+#include <cassert>
 #include <concepts>
 #include <tuple>
 #include <type_traits>
@@ -33,6 +38,13 @@ namespace pmacc::spearhed
         using SpeciesList = std::tuple<T_Species...>;
     };
 
+    /** @brief A material group prepared only after an explicit invalidation. */
+    template<SpeciesTag... T_Species>
+    struct StaticMaterialAabbSpeciesDecompositionGroup
+    {
+        using SpeciesList = std::tuple<T_Species...>;
+    };
+
     namespace detail
     {
         template<typename T>
@@ -42,6 +54,12 @@ namespace pmacc::spearhed
 
         template<SpeciesTag... T_Species>
         struct IsMaterialAabbSpeciesDecompositionGroup<MaterialAabbSpeciesDecompositionGroup<T_Species...>>
+            : std::true_type
+        {
+        };
+
+        template<SpeciesTag... T_Species>
+        struct IsMaterialAabbSpeciesDecompositionGroup<StaticMaterialAabbSpeciesDecompositionGroup<T_Species...>>
             : std::true_type
         {
         };
@@ -61,6 +79,12 @@ namespace pmacc::spearhed
         {
         };
 
+        template<typename T_Species, SpeciesTag... T_GroupSpecies>
+        struct GroupSpeciesCount<T_Species, StaticMaterialAabbSpeciesDecompositionGroup<T_GroupSpecies...>>
+            : std::integral_constant<std::size_t, (std::size_t{0u} + ... + std::same_as<T_Species, T_GroupSpecies>)>
+        {
+        };
+
         template<typename T_Species, typename... T_Groups>
         inline constexpr std::size_t groupSpeciesCount
             = (std::size_t{0u} + ... + GroupSpeciesCount<T_Species, T_Groups>::value);
@@ -75,6 +99,17 @@ namespace pmacc::spearhed
             : std::bool_constant<
                   (sizeof...(T_GroupSpecies) > 0u)
                   && ((GroupSpeciesCount<T_GroupSpecies, MaterialAabbSpeciesDecompositionGroup<T_Species...>>::value
+                       == 1u)
+                      && ...)>
+        {
+        };
+
+        template<SpeciesTag... T_GroupSpecies, SpeciesTag... T_Species>
+        struct GroupOnlyUses<StaticMaterialAabbSpeciesDecompositionGroup<T_GroupSpecies...>, std::tuple<T_Species...>>
+            : std::bool_constant<
+                  (sizeof...(T_GroupSpecies) > 0u)
+                  && ((GroupSpeciesCount<T_GroupSpecies, StaticMaterialAabbSpeciesDecompositionGroup<T_Species...>>::
+                           value
                        == 1u)
                       && ...)>
         {
@@ -114,6 +149,7 @@ namespace pmacc::spearhed
         {
             using type = typename T_Setup::DecompositionGroups;
         };
+
     } // namespace detail
 
     /** @brief The setup's declared groups, or one backward-compatible material group when omitted. */
@@ -198,4 +234,128 @@ namespace pmacc::spearhed
     template<typename T_Decomposition>
     DecompositionGroup(T_Decomposition, DecompositionGroupPreparation = DecompositionGroupPreparation::EveryMotion)
         -> DecompositionGroup<T_Decomposition>;
+
+    namespace detail
+    {
+        template<SpeciesRegistryTag T_Registry, typename T_Group>
+        struct DecompositionGroupRuntime;
+
+        template<SpeciesRegistryTag T_Registry, SpeciesTag... T_Species>
+        struct DecompositionGroupRuntime<T_Registry, MaterialAabbSpeciesDecompositionGroup<T_Species...>>
+        {
+            using Decomposition
+                = MaterialAabbDecomposition<ParticleRegionBuffer<typename T_Registry::template PRType<T_Species>>...>;
+            using type = DecompositionGroup<Decomposition>;
+
+            [[nodiscard]] static type create()
+            {
+                auto& dc = pmacc::Environment<>::get().DataConnector();
+                [[maybe_unused]] bool const allStoresPresent = (dc.hasId(prBufId<T_Species>()) && ...);
+                assert(allStoresPresent && "configured species must have a particle buffer");
+                return type{
+                    Decomposition{*dc.get<ParticleRegionBuffer<typename T_Registry::template PRType<T_Species>>>(
+                        prBufId<T_Species>())...}};
+            }
+        };
+
+        template<SpeciesRegistryTag T_Registry, SpeciesTag... T_Species>
+        struct DecompositionGroupRuntime<T_Registry, StaticMaterialAabbSpeciesDecompositionGroup<T_Species...>>
+        {
+            using Decomposition
+                = MaterialAabbDecomposition<ParticleRegionBuffer<typename T_Registry::template PRType<T_Species>>...>;
+            using type = DecompositionGroup<Decomposition>;
+
+            [[nodiscard]] static type create()
+            {
+                auto& dc = pmacc::Environment<>::get().DataConnector();
+                [[maybe_unused]] bool const allStoresPresent = (dc.hasId(prBufId<T_Species>()) && ...);
+                assert(allStoresPresent && "configured species must have a particle buffer");
+                return type{
+                    Decomposition{*dc.get<ParticleRegionBuffer<typename T_Registry::template PRType<T_Species>>>(
+                        prBufId<T_Species>())...},
+                    DecompositionGroupPreparation::OnInvalidation};
+            }
+        };
+
+        template<typename T_Species, typename T_Group>
+        inline constexpr bool groupContainsSpecies = GroupSpeciesCount<T_Species, T_Group>::value == 1u;
+
+        template<SpeciesRegistryTag T_Registry, typename T_Assignment>
+        struct DecompositionGroupSet;
+
+        template<SpeciesRegistryTag T_Registry, typename... T_Groups>
+        struct DecompositionGroupSet<T_Registry, std::tuple<T_Groups...>>
+        {
+            static_assert(
+                IsDecompositionGroupAssignmentFor<std::tuple<T_Groups...>, typename T_Registry::List>::value,
+                "decomposition groups must assign every registered species exactly once");
+
+            using Registry = T_Registry;
+            using Assignment = std::tuple<T_Groups...>;
+            using RuntimeGroups = std::tuple<typename DecompositionGroupRuntime<T_Registry, T_Groups>::type...>;
+
+            DecompositionGroupSet() : m_groups(DecompositionGroupRuntime<T_Registry, T_Groups>::create()...)
+            {
+            }
+
+            /** @brief Prepare every group once; static groups skip unchanged generations themselves. */
+            void prepareAfterMotion()
+            {
+                std::apply([](auto&... group) { (group.prepareAfterMotion(), ...); }, m_groups);
+            }
+
+            template<SpeciesTag T_Species>
+            [[nodiscard]] decltype(auto) groupFor()
+            {
+                return (std::get<groupIndex<T_Species>()>(m_groups));
+            }
+
+            template<SpeciesTag T_Species>
+            [[nodiscard]] decltype(auto) groupFor() const
+            {
+                return (std::get<groupIndex<T_Species>()>(m_groups));
+            }
+
+            template<SpeciesTag T_Species>
+            [[nodiscard]] auto& storeFor()
+            {
+                using Store = ParticleRegionBuffer<typename T_Registry::template PRType<T_Species>>;
+                auto& dc = pmacc::Environment<>::get().DataConnector();
+                assert(dc.hasId(prBufId<T_Species>()) && "configured species must have a particle buffer");
+                return *dc.get<Store>(prBufId<T_Species>());
+            }
+
+            template<typename T_Store>
+            [[nodiscard]] auto preparedFor(T_Store& store)
+            {
+                return groupFor<typename T_Store::Species>().preparedFor(store);
+            }
+
+            template<typename T_Store>
+            [[nodiscard]] auto preparedFor(T_Store& store) const
+            {
+                return groupFor<typename T_Store::Species>().preparedFor(store);
+            }
+
+        private:
+            template<SpeciesTag T_Species, std::size_t T_Index = 0u>
+            static consteval std::size_t groupIndex()
+            {
+                static_assert(T_Index < sizeof...(T_Groups), "species is absent from this decomposition-group set");
+                if constexpr(T_Index == sizeof...(T_Groups))
+                    return 0u;
+                else if constexpr(
+                    groupContainsSpecies<T_Species, std::tuple_element_t<T_Index, std::tuple<T_Groups...>>>)
+                    return T_Index;
+                else
+                    return groupIndex<T_Species, T_Index + 1u>();
+            }
+
+            RuntimeGroups m_groups;
+        };
+    } // namespace detail
+
+    /** @brief Simulation-wide owning set of configured decomposition groups. */
+    template<SpeciesRegistryTag T_Registry, typename T_Assignment>
+    using DecompositionGroupSet = detail::DecompositionGroupSet<T_Registry, T_Assignment>;
 } // namespace pmacc::spearhed

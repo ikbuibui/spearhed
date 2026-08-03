@@ -26,6 +26,11 @@ namespace
         pmacc::spearhed::MaterialAabbSpeciesDecompositionGroup<species::Boundary>,
         pmacc::spearhed::MaterialAabbSpeciesDecompositionGroup<species::Tracer>>;
 
+    using SeparateStaticBoundaryDecompositionGroups = std::tuple<
+        pmacc::spearhed::MaterialAabbSpeciesDecompositionGroup<species::Default>,
+        pmacc::spearhed::StaticMaterialAabbSpeciesDecompositionGroup<species::Boundary>,
+        pmacc::spearhed::MaterialAabbSpeciesDecompositionGroup<species::Tracer>>;
+
     using DuplicateDefaultDecompositionGroups = std::tuple<
         pmacc::spearhed::MaterialAabbSpeciesDecompositionGroup<species::Default, species::Boundary>,
         pmacc::spearhed::MaterialAabbSpeciesDecompositionGroup<species::Default, species::Tracer>>;
@@ -35,6 +40,9 @@ TEST_CASE("Decomposition-group declarations assign each registered species exact
 {
     STATIC_REQUIRE(
         pmacc::spearhed::DecompositionGroupAssignmentFor<SeparateMaterialDecompositionGroups, spearhed::AllSpecies>);
+    STATIC_REQUIRE(
+        pmacc::spearhed::
+            DecompositionGroupAssignmentFor<SeparateStaticBoundaryDecompositionGroups, spearhed::AllSpecies>);
     STATIC_REQUIRE_FALSE(
         pmacc::spearhed::DecompositionGroupAssignmentFor<DuplicateDefaultDecompositionGroups, spearhed::AllSpecies>);
 }

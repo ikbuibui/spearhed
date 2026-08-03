@@ -33,6 +33,7 @@
  */
 
 #include "spearhed/ParticleDefinition.hpp"
+#include "spearhed/control/TargetWorkSet.hpp"
 #include "spearhed/memory.hpp"
 #include "spearhed/param.hpp"
 #include "spearhed/particles/attributes/Acceleration.hpp"
@@ -95,6 +96,13 @@ namespace
 
     struct Box2DSetup
     {
+        // Fluid and wall deliberately have independent group lifecycles. The frozen wall mapping
+        // is retained until explicitly invalidated; tracer remains an empty configured group here.
+        using DecompositionGroups = std::tuple<
+            pmacc::spearhed::MaterialAabbSpeciesDecompositionGroup<pmacc::spearhed::species::Default>,
+            pmacc::spearhed::StaticMaterialAabbSpeciesDecompositionGroup<pmacc::spearhed::species::Boundary>,
+            pmacc::spearhed::MaterialAabbSpeciesDecompositionGroup<pmacc::spearhed::species::Tracer>>;
+
         // Required by SetupInterface concept - represents the interior region's domain
         pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0}, {-1.0f, -1.0f}, {1.0f, 1.0f}};
 
@@ -435,25 +443,23 @@ TEST_CASE_METHOD(
         using K = spearhed::CubicSplineKernel;
         constexpr auto interactionRadius = static_cast<spearhed::CS::T_Axis>(K::supportRadius) * spearhed::h0;
 
-        // The movable interior and frozen wall deliberately use separate groups.
-        // The wall group remains prepared across all steps, while the interior
-        // group advances once after each push. Their plan uses the generic
-        // materialised-CSR fallback without mutating either group.
-        auto fluidGroup = pmacc::spearhed::DecompositionGroup{pmacc::spearhed::MaterialAabbDecomposition{*prBuf}};
-        auto boundaryGroup = pmacc::spearhed::DecompositionGroup{
-            pmacc::spearhed::MaterialAabbDecomposition{boundaryBuf},
-            pmacc::spearhed::DecompositionGroupPreparation::OnInvalidation};
+        // The setup-level declaration constructs the simulation-wide owners. The wall group remains
+        // prepared across all steps, while the interior group advances once after each push. Their
+        // plan uses the generic materialised-CSR fallback without mutating either prepared group.
+        using Groups = pmacc::spearhed::DecompositionGroupSet<
+            spearhed::AllSpecies,
+            pmacc::spearhed::DecompositionGroupsFor<Box2DSetup, spearhed::AllSpecies>>;
+        Groups groups;
 
         for(uint32_t step = 0; step < 5u; ++step)
         {
             spearhed::ParticlePush{}(step);
-            fluidGroup.prepareAfterMotion();
-            boundaryGroup.prepareAfterMotion();
+            groups.prepareAfterMotion();
             auto bundle = pmacc::spearhed::makeInteractionPlan(
-                fluidGroup.preparedFor(*prBuf),
+                groups.preparedFor(*prBuf),
                 pmacc::spearhed::InteractionQuery{interactionRadius},
-                fluidGroup.preparedFor(*prBuf),
-                boundaryGroup.preparedFor(boundaryBuf));
+                groups.preparedFor(*prBuf),
+                groups.preparedFor(boundaryBuf));
             // One frame index serves both passes: neither mutates frame-list topology, only
             // particle attributes (see the FrameIndexBuffer invalidation contract). ParticlePush
             // can mutate frame-list topology between steps, so the index is rebuilt each iteration.
@@ -471,7 +477,7 @@ TEST_CASE_METHOD(
         }
 
         // The static boundary group was prepared once and reused for every target plan.
-        REQUIRE(boundaryGroup.preparedFor(boundaryBuf).generation() == 1u);
+        REQUIRE(groups.preparedFor(boundaryBuf).generation() == 1u);
 
         // CHECK 1: boundary positions frozen
 
@@ -542,6 +548,51 @@ TEST_CASE_METHOD(
             }
             REQUIRE(checkedCount > 0u);
         }
+    }
+
+
+    SECTION("Boundary: target work retains mixed-group plans across density and hydro phases")
+    {
+        namespace species = pmacc::spearhed::species;
+
+        Box2DSetup setup;
+        spearhed::InitRegions{}(*deviceHeap, setup);
+        spearhed::InitParticles{}(setup);
+
+        using K = spearhed::CubicSplineKernel;
+        constexpr auto interactionRadius = static_cast<spearhed::CS::T_Axis>(K::supportRadius) * spearhed::h0;
+        using Groups = pmacc::spearhed::DecompositionGroupSet<
+            spearhed::AllSpecies,
+            pmacc::spearhed::DecompositionGroupsFor<Box2DSetup, spearhed::AllSpecies>>;
+        using DensityTargets = std::tuple<species::Default, species::Boundary>;
+        using HydroTargets = std::tuple<species::Default>;
+        using Targets = spearhed::detail::TupleUnion<DensityTargets, HydroTargets>;
+
+        Groups groups;
+        spearhed::TargetFrameIndexCache<spearhed::AllSpecies, Targets> frameIndices;
+        groups.prepareAfterMotion();
+        auto workSet = spearhed::makeTargetWorkSet<DensityTargets, HydroTargets>(
+            groups,
+            frameIndices,
+            pmacc::spearhed::InteractionQuery{interactionRadius});
+
+        // Both target densities complete before the hydro pass reads either source density. The
+        // work set owns each plan and prepared target handle until the hydro completion below.
+        auto densityDone = workSet.launchDensity(
+            [](auto& work)
+            { return spearhed::UpdateDensity<K>{}(work.plan, *work.target, *work.frameIndex, spearhed::h0); });
+        densityDone.waitForFinished();
+        auto hydroDone = workSet.launchHydro(
+            [](auto& work)
+            {
+                return spearhed::UpdateHydroForces<K>{
+                    spearhed::gamma_eos}(work.plan, *work.target, *work.frameIndex, spearhed::h0);
+            });
+        hydroDone.waitForFinished();
+
+        auto& boundary = *this->template prBufFor<species::Boundary>();
+        REQUIRE(groups.preparedFor(*prBuf).generation() == 1u);
+        REQUIRE(groups.preparedFor(boundary).generation() == 1u);
     }
 
 
@@ -650,9 +701,17 @@ TEST_CASE_METHOD(
         spearhed::InitParticles{}(setup);
 
         auto& boundary = *this->template prBufFor<species::Boundary>();
+        auto& dc = pmacc::Environment<>::get().DataConnector();
+
+        // The non-targeted tracer remains a valid configured zero-sized store, so a static
+        // decomposition-group/work-set type never depends on a runtime present-species subset.
+        REQUIRE(dc.hasId(pmacc::spearhed::prBufId<species::Tracer>()));
+        auto& tracer = *dc.get<pmacc::spearhed::ParticleRegionBuffer<spearhed::PRTypeFor<species::Tracer>>>(
+            pmacc::spearhed::prBufId<species::Tracer>());
 
         REQUIRE(prBuf->size == 1);
         REQUIRE(boundary.size == 1);
+        REQUIRE(tracer.size == 0);
         REQUIRE(countLiveParticles(*prBuf) == 4);
         REQUIRE(countLiveParticles(boundary) == 4);
     }
