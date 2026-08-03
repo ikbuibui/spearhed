@@ -162,38 +162,38 @@ namespace pmacc::spearhed
         }
     };
 
-    // Update region bounds after particles in a region move
+    /**
+     * @brief Reduce chart-relative particle positions into material occupancy bounds.
+     *
+     * This is the low-level compatibility operation. Spatial lifecycle users
+     * should call MaterialAabbDecomposition::prepareAfterMotion() instead.
+     */
+    template<typename T_ParticleRegion>
+    void updateMaterialAabbBounds(ParticleRegionBuffer<T_ParticleRegion>& prBuf)
+    {
+        constexpr uint32_t threadsPerBlock = 256;
+        constexpr int maxBlocks = 1024;
+
+        int numBlocks = (prBuf.size + static_cast<int>(threadsPerBlock) - 1) / static_cast<int>(threadsPerBlock);
+        if(numBlocks > maxBlocks)
+            numBlocks = maxBlocks;
+        if(numBlocks == 0)
+            numBlocks = 1;
+
+        PMACC_LOCKSTEP_KERNEL(UpdateRegionBounds{})
+            .config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numBlocks))(prBuf.getDeviceDataBox(), prBuf.size);
+    }
+
+    // Compatibility wrapper for low-level tests and callers not yet migrated to a decomposition.
     template<typename T_ParticleRegion>
     struct UpdateVolumes
     {
-        // Allow customizing the buffer name if needed
         void operator()() const
         {
-            // Tuning constants
-            constexpr uint32_t threadsPerBlock = 256;
-            // Maximum blocks to launch (prevents kernel launch overhead on small GPUs)
-            constexpr int maxBlocks = 1024;
-
             auto& dc = pmacc::Environment<>::get().DataConnector();
-
-            // Note: Ensure PRType is defined in this scope or passed as a template
             using BufferType = pmacc::spearhed::ParticleRegionBuffer<T_ParticleRegion>;
             using Species = typename T_ParticleRegion::Species;
-
-            auto& prBuf = *dc.get<BufferType>(prBufId<Species>());
-
-            // Dynamic Grid Sizing:
-            // Calculate enough blocks to cover the regions, capped at maxBlocks.
-            // Since the kernel uses a grid-stride loop, this ensures high occupancy
-            // without launching unnecessary empty blocks for small problems.
-            int numBlocks = (prBuf.size + threadsPerBlock - 1) / threadsPerBlock;
-            if(numBlocks > maxBlocks)
-                numBlocks = maxBlocks;
-            if(numBlocks == 0)
-                numBlocks = 1;
-
-            PMACC_LOCKSTEP_KERNEL(UpdateRegionBounds{})
-                .config<threadsPerBlock>(pmacc::DataSpace<DIM1>(numBlocks))(prBuf.getDeviceDataBox(), prBuf.size);
+            updateMaterialAabbBounds(*dc.get<BufferType>(prBufId<Species>()));
         }
     };
 } // namespace pmacc::spearhed

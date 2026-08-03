@@ -28,6 +28,7 @@
 #include "spmacc/particles/algorithms/LaunchForEach.hpp"
 #include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/particles/regions/ParticleRegion.hpp"
+#include "spmacc/particles/spatial/MaterialAabbDecomposition.hpp"
 #include "spmacc/topology/CartesianStorage.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
 
@@ -101,6 +102,41 @@ TEST_CASE_METHOD(ParticleFixture, "UpdateRegionBounds Validation", "[integration
             REQUIRE(region.spatial.occupancy.min[tag] == expectedMin[tag]);
             REQUIRE(region.spatial.occupancy.max[tag] == expectedMax[tag]);
         });
+}
+
+TEST_CASE_METHOD(
+    ParticleFixture,
+    "MaterialAabbDecomposition prepares a generation and owns its CSR plan",
+    "[integration][spatial]")
+{
+    auto setup = spearhed::EmptyNRegions<1>{};
+    spearhed::InitRegions{}(*deviceHeap, setup);
+    spearhed::InitParticles{}(setup);
+
+    auto decomposition = pmacc::spearhed::MaterialAabbDecomposition{*prBuf};
+    decomposition.prepareAfterMotion();
+    auto prepared = decomposition.preparedFor(*prBuf);
+    auto plan = pmacc::spearhed::makeInteractionPlan(prepared, 1.0f, prepared);
+    auto multiSourcePlan = pmacc::spearhed::makeInteractionPlan(prepared, 1.0f, prepared, prepared);
+    auto emptyPlan = pmacc::spearhed::makeInteractionPlan(prepared, 1.0f);
+
+    STATIC_REQUIRE(pmacc::spearhed::PreparedRegionSet<decltype(prepared)>);
+    STATIC_REQUIRE(pmacc::spearhed::SpatialDecompositionFor<decltype(decomposition), decltype(*prBuf)>);
+    STATIC_REQUIRE(pmacc::spearhed::IsNeighbourBundle<decltype(plan)>);
+    STATIC_REQUIRE(pmacc::spearhed::IsNeighbourBundle<decltype(multiSourcePlan)>);
+    STATIC_REQUIRE(pmacc::spearhed::IsNeighbourBundle<decltype(emptyPlan)>);
+    REQUIRE(prepared.generation() == 1u);
+    REQUIRE(prepared.bucketCount() == 1u);
+    REQUIRE(plan.size() == 1u);
+    REQUIRE(multiSourcePlan.size() == 2u);
+    REQUIRE(emptyPlan.size() == 0u);
+
+    // The target may also be a source without another bounds reduction. A later
+    // preparation advances the shared generation, which debug assertions on the
+    // old handle and plan use to reject stale reuse.
+    decomposition.prepareAfterMotion();
+    auto newerPrepared = decomposition.preparedFor(*prBuf);
+    REQUIRE(newerPrepared.generation() == 2u);
 }
 
 TEST_CASE_METHOD(

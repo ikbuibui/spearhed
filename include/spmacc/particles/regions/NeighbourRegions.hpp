@@ -128,6 +128,18 @@ namespace pmacc::spearhed
     } // namespace detail
 
     /**
+     * @brief Return a valid empty candidate bundle when a query has no sources.
+     *
+     * This permits runtime source selection to produce an empty interaction plan;
+     * @c interact treats that plan as a no-op.
+     */
+    template<typename Target, typename SmoothingLength>
+    auto calculateNeighbours(Target&, SmoothingLength)
+    {
+        return makeNeighbourBundle();
+    }
+
+    /**
      * @brief Compute neighbour-region lists for every source and return an owning bundle.
      *
      * @param target  The target ParticleRegionBuffer.
@@ -136,7 +148,7 @@ namespace pmacc::spearhed
      * @return A CSR-backed owning NeighbourBundle with one InteractionEntry per source.
      */
     template<typename Target, typename SmoothingLength, typename... Sources>
-    auto calculateNeighbours(Target& target, SmoothingLength h, Sources&... sources)
+    auto calculateNeighbours(Target& target, SmoothingLength h, Sources&... sources) requires(sizeof...(Sources) > 0)
     {
         int const numTargetRegions = target.size;
         static constexpr uint32_t threadsPerBlock = 32;

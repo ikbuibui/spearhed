@@ -30,9 +30,8 @@
 #include "spearhed/sph/HydroForces.hpp"
 #include "spmacc/particles/algorithms/FrameIndex.hpp"
 #include "spmacc/particles/algorithms/LaunchForEach.hpp"
-#include "spmacc/particles/regions/NeighbourRegions.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
-#include "spmacc/particles/regions/RegionBoundsUpdate.hpp"
+#include "spmacc/particles/spatial/MaterialAabbDecomposition.hpp"
 
 #include <pmacc/debug/PMaccVerbose.hpp>
 #include <pmacc/dimensions/DataSpace.hpp>
@@ -136,26 +135,37 @@ namespace spearhed
     {
         auto& dc = pmacc::Environment<>::get().DataConnector();
         // The integration target: the (single) species advanced in time and used as the bundle target.
-        auto& defaultSpecies = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>(
+        auto& defaultSpeciesBuf = *dc.get<pmacc::spearhed::ParticleRegionBuffer<PRType>>(
             pmacc::spearhed::prBufId(pmacc::spearhed::species::default_));
 
         auto const interactionRadius = static_cast<CS::T_Axis>(K::supportRadius) * h0;
 
-        // Every present species that contributes to neighbour sums is a source; the boundary wall is
-        // included automatically when the setup created it, with no hardcoded species list.
+        // The current material group consists of the hydrodynamic target and every runtime-present
+        // source. Non-interacting tracers have no current occupancy consumer, so they remain outside
+        // this group until another algorithm needs a prepared spatial handle for them.
         pmacc::spearhed::withSpeciesBufsWithPred(
             allSpecies,
             pmacc::spearhed::pred::withRole<pmacc::spearhed::roles::Source>,
             [&](auto&... sources)
             {
-                auto bundle = pmacc::spearhed::calculateNeighbours(defaultSpecies, interactionRadius, sources...);
+                auto decomposition = pmacc::spearhed::MaterialAabbDecomposition{defaultSpeciesBuf, sources...};
+                decomposition.prepareAfterMotion();
+                auto targetPrepared = decomposition.preparedFor(defaultSpeciesBuf);
+
+                // Runtime source selection may be empty. makeInteractionPlan() then returns a valid
+                // no-source plan, allowing density self-initialisation and derivative zeroing to run.
+                auto plan = pmacc::spearhed::makeInteractionPlan(
+                    targetPrepared,
+                    interactionRadius,
+                    decomposition.preparedFor(sources)...);
+
                 // One frame index serves both passes: neither mutates frame-list topology, only
                 // particle attributes (see the FrameIndexBuffer invalidation contract).
-                pmacc::spearhed::FrameIndexBuffer<PRType> index{defaultSpecies};
-                auto densityDone = spearhed::UpdateDensity<K>{}(bundle, defaultSpecies, index, h0);
-                auto hydroDone = spearhed::UpdateHydroForces<K>{gamma_eos}(bundle, defaultSpecies, index, h0);
-                // bundle and index own device memory read by the still-queued kernels and die at the
-                // end of this scope, so this is the mandatory sync point for both passes.
+                pmacc::spearhed::FrameIndexBuffer<PRType> index{defaultSpeciesBuf};
+                auto densityDone = spearhed::UpdateDensity<K>{}(plan, defaultSpeciesBuf, index, h0);
+                auto hydroDone = spearhed::UpdateHydroForces<K>{gamma_eos}(plan, defaultSpeciesBuf, index, h0);
+                // plan owns CSR buffers and retains prepared handles read by queued kernels; index,
+                // plan, and decomposition therefore remain in scope until this mandatory completion point.
                 (densityDone + hydroDone).waitForFinished();
             });
 
@@ -178,7 +188,6 @@ namespace spearhed
         // order of operations? which species to start with?
         // force calculation first? or pusher or something else?
         ParticlePush{}(currentStep);
-        pmacc::spearhed::UpdateVolumes<PRType>{}();
 
         using SmoothingKernel = typename Setup::SmoothingKernel;
         updateHydrodynamics<SmoothingKernel>();
