@@ -156,7 +156,7 @@ namespace spearhed
                 // no-source plan, allowing density self-initialisation and derivative zeroing to run.
                 auto plan = pmacc::spearhed::makeInteractionPlan(
                     targetPrepared,
-                    interactionRadius,
+                    pmacc::spearhed::InteractionQuery{interactionRadius},
                     decomposition.preparedFor(sources)...);
 
                 // One frame index serves both passes: neither mutates frame-list topology, only

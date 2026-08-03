@@ -127,9 +127,6 @@ namespace pmacc::spearhed
         }
     };
 
-    template<typename Bundle, typename... Prepared>
-    InteractionPlan(Bundle&&, Prepared&&...) -> InteractionPlan<std::decay_t<Bundle>, std::decay_t<Prepared>...>;
-
     namespace detail
     {
         template<IsNeighbourBundle Bundle, PreparedRegionSet... Prepared>

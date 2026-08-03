@@ -55,6 +55,8 @@
 #include "spmacc/particles/regions/NeighbourRegions.hpp"
 #include "spmacc/particles/regions/RegionBoundsUpdate.hpp"
 #include "spmacc/particles/regions/RegionRole.hpp"
+#include "spmacc/particles/spatial/DecompositionGroup.hpp"
+#include "spmacc/particles/spatial/MaterialAabbDecomposition.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
@@ -433,15 +435,25 @@ TEST_CASE_METHOD(
         using K = spearhed::CubicSplineKernel;
         constexpr auto interactionRadius = static_cast<spearhed::CS::T_Axis>(K::supportRadius) * spearhed::h0;
 
+        // The movable interior and frozen wall deliberately use separate groups.
+        // The wall group remains prepared across all steps, while the interior
+        // group advances once after each push. Their plan uses the generic
+        // materialised-CSR fallback without mutating either group.
+        auto fluidGroup = pmacc::spearhed::DecompositionGroup{pmacc::spearhed::MaterialAabbDecomposition{*prBuf}};
+        auto boundaryGroup = pmacc::spearhed::DecompositionGroup{
+            pmacc::spearhed::MaterialAabbDecomposition{boundaryBuf},
+            pmacc::spearhed::DecompositionGroupPreparation::OnInvalidation};
+
         for(uint32_t step = 0; step < 5u; ++step)
         {
             spearhed::ParticlePush{}(step);
-            pmacc::spearhed::UpdateVolumes<spearhed::PRType>{}();
-            auto bundle = pmacc::spearhed::calculateNeighbours(
-                *prBuf,
-                interactionRadius,
-                *prBuf,
-                *this->template prBufFor<species::Boundary>());
+            fluidGroup.prepareAfterMotion();
+            boundaryGroup.prepareAfterMotion();
+            auto bundle = pmacc::spearhed::makeInteractionPlan(
+                fluidGroup.preparedFor(*prBuf),
+                pmacc::spearhed::InteractionQuery{interactionRadius},
+                fluidGroup.preparedFor(*prBuf),
+                boundaryGroup.preparedFor(boundaryBuf));
             // One frame index serves both passes: neither mutates frame-list topology, only
             // particle attributes (see the FrameIndexBuffer invalidation contract). ParticlePush
             // can mutate frame-list topology between steps, so the index is rebuilt each iteration.
@@ -457,6 +469,9 @@ TEST_CASE_METHOD(
                 spearhed::EulerIntegrate{},
                 spearhed::dt);
         }
+
+        // The static boundary group was prepared once and reused for every target plan.
+        REQUIRE(boundaryGroup.preparedFor(boundaryBuf).generation() == 1u);
 
         // CHECK 1: boundary positions frozen
 

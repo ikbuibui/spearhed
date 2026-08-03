@@ -11,9 +11,8 @@
 
 #pragma once
 
-#include "spmacc/particles/regions/NeighbourRegions.hpp"
 #include "spmacc/particles/regions/RegionBoundsUpdate.hpp"
-#include "spmacc/particles/spatial/InteractionPlan.hpp"
+#include "spmacc/particles/spatial/MaterializedCsrInteractionPlan.hpp"
 #include "spmacc/particles/spatial/PreparedRegionSet.hpp"
 
 #include <cassert>
@@ -184,29 +183,4 @@ namespace pmacc::spearhed
         std::shared_ptr<detail::MaterialAabbMappingState> m_state;
     };
 
-    /**
-     * @brief Build a material-AABB interaction plan for one target and source set.
-     *
-     * CSR buffers are moved into the returned plan. The copied prepared handles
-     * retain generation state, so debug builds reject use after a newer
-     * prepareAfterMotion() on either decomposition. This function never prepares
-     * or otherwise mutates a decomposition.
-     */
-    template<typename T_TargetStore, typename Radius, typename... T_SourceStores>
-    [[nodiscard]] auto makeInteractionPlan(
-        MaterialAabbPreparedRegionSet<T_TargetStore> const& target,
-        Radius interactionRadius,
-        MaterialAabbPreparedRegionSet<T_SourceStores> const&... sources)
-    {
-        target.assertCurrent();
-        if constexpr(sizeof...(sources) > 0u)
-            (sources.assertCurrent(), ...);
-
-        auto bundle = calculateNeighbours(target.store(), interactionRadius, sources.store()...);
-        using Plan = InteractionPlan<
-            decltype(bundle),
-            MaterialAabbPreparedRegionSet<T_TargetStore>,
-            MaterialAabbPreparedRegionSet<T_SourceStores>...>;
-        return Plan{std::move(bundle), std::tuple{target, sources...}};
-    }
 } // namespace pmacc::spearhed

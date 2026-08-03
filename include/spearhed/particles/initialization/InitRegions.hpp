@@ -25,6 +25,7 @@
 #include "spmacc/particles/regions/AABB.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 #include "spmacc/particles/regions/RegionRole.hpp"
+#include "spmacc/particles/spatial/DecompositionGroup.hpp"
 
 #include <pmacc/Environment.hpp>
 
@@ -48,6 +49,12 @@ namespace spearhed
     {
         void operator()(DeviceHeap const& deviceHeap, SetupInterface auto& setup)
         {
+            using Setup = std::remove_cvref_t<decltype(setup)>;
+            using DecompositionGroups = pmacc::spearhed::DecompositionGroupsFor<Setup, AllSpecies>;
+            static_assert(
+                pmacc::spearhed::DecompositionGroupAssignmentFor<DecompositionGroups, AllSpecies>,
+                "Setup::DecompositionGroups must assign every registered species to exactly one decomposition group");
+
             pmacc::spearhed::forEachSpecies(
                 pmacc::spearhed::species::all,
                 [&](auto species) { createSpecies<std::remove_cvref_t<decltype(species)>>(deviceHeap, setup); });
