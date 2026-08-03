@@ -24,12 +24,15 @@
 #include "spmacc/particles/algorithms/FrameDispatch.hpp"
 #include "spmacc/particles/regions/NeighbourBundle.hpp"
 #include "spmacc/particles/regions/NeighbourEntry.hpp"
+#include "spmacc/particles/spatial/CsrCandidateProvider.hpp"
+#include "spmacc/particles/spatial/InteractionEntry.hpp"
 
 #include <pmacc/dimensions/Definition.hpp>
 #include <pmacc/lockstep/Kernel.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 
 #include <cstdint>
+#include <type_traits>
 #include <utility>
 
 namespace pmacc::spearhed
@@ -130,7 +133,7 @@ namespace pmacc::spearhed
      * @param target  The target ParticleRegionBuffer.
      * @param h       Smoothing length (scalar) expanding each region's AABB.
      * @param sources One or more source ParticleRegionBuffer objects.
-     * @return NeighbourBundle<true, NeighbourEntry<Sources>...>
+     * @return A CSR-backed owning NeighbourBundle with one InteractionEntry per source.
      */
     template<typename Target, typename SmoothingLength, typename... Sources>
     auto calculateNeighbours(Target& target, SmoothingLength h, Sources&... sources)
@@ -178,7 +181,11 @@ namespace pmacc::spearhed
                         h);
             }
 
-            return NeighbourEntry<SrcType>{&sourcePRBuf, std::move(neighbourRegions), std::move(regionOffsets)};
+            using TargetType = std::remove_reference_t<Target>;
+            using Provider = CsrCandidateProvider<TargetType, SrcType>;
+            return InteractionEntry{
+                &sourcePRBuf,
+                Provider{&target, &sourcePRBuf, std::move(neighbourRegions), std::move(regionOffsets)}};
         };
 
         return makeNeighbourBundle(computeOneEntry(sources)...);

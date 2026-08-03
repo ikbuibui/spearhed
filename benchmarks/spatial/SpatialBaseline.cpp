@@ -166,8 +166,9 @@ namespace
         auto plan = pmacc::spearhed::calculateNeighbours(particleStore, interactionRadius, particleStore);
         waitForDevice();
         auto& entry = plan.bySpecies(pmacc::spearhed::species::default_);
-        entry.regionOffsets.deviceToHost();
-        auto const offsets = entry.regionOffsets.getHostBuffer().getDataBox();
+        auto& provider = entry.candidateProvider;
+        provider.regionOffsets.deviceToHost();
+        auto const offsets = provider.regionOffsets.getHostBuffer().getDataBox();
         uint64_t const candidatePairs = offsets[regionCount];
         uint64_t const csrDeviceBytes = (candidatePairs + static_cast<uint64_t>(regionCount) + 1u) * sizeof(uint32_t);
 

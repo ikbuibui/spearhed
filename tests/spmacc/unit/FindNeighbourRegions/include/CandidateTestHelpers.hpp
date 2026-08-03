@@ -29,8 +29,8 @@ namespace pmacc::spearhed::test
      * @brief Collect candidate source bucket slots without exposing their storage to tests.
      *
      * This is the compatibility point for spatial correctness tests. The current implementation
-     * reads NeighbourEntry's CSR buffers; later candidate providers can add an overload without
-     * changing assertions that consume the returned per-target slot lists.
+     * reads the CSR provider's buffers; other providers can add an overload without changing
+     * assertions that consume the returned per-target slot lists.
      *
      * Candidate order is deliberately normalised because provider ordering is not a spatial
      * correctness requirement. The vector-of-vectors result is a test-only snapshot chosen for
@@ -40,11 +40,12 @@ namespace pmacc::spearhed::test
     template<typename Entry>
     auto collectCandidateSourceSlots(Entry& entry, uint32_t targetBucketCount)
     {
-        entry.neighbourRegions.deviceToHost();
-        entry.regionOffsets.deviceToHost();
+        auto& provider = entry.candidateProvider;
+        provider.neighbourRegions.deviceToHost();
+        provider.regionOffsets.deviceToHost();
 
-        auto const neighbours = entry.neighbourRegions.getHostBuffer().getDataBox();
-        auto const offsets = entry.regionOffsets.getHostBuffer().getDataBox();
+        auto const neighbours = provider.neighbourRegions.getHostBuffer().getDataBox();
+        auto const offsets = provider.regionOffsets.getHostBuffer().getDataBox();
 
         std::vector<std::vector<uint32_t>> result(targetBucketCount);
         for(uint32_t targetSlot = 0; targetSlot < targetBucketCount; ++targetSlot)

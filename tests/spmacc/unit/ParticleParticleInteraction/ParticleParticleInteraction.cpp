@@ -27,6 +27,9 @@
 #include "spmacc/particles/algorithms/InteractParticles.hpp"
 #include "spmacc/particles/regions/NeighbourBundle.hpp"
 #include "spmacc/particles/regions/NeighbourRegions.hpp"
+#include "spmacc/particles/spatial/CandidateProvider.hpp"
+#include "spmacc/particles/spatial/InteractionEntry.hpp"
+#include "spmacc/particles/spatial/RegionCandidate.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
@@ -109,6 +112,63 @@ using ParticleFixture = spearhed::test::SpearhedParticleFixture<TEST_DIM>;
 
 namespace
 {
+    template<typename T_TargetBox, typename T_SourceBox>
+    struct AllRegionsProviderView
+    {
+        T_TargetBox targetRegions;
+        T_SourceBox sourceRegions;
+        uint32_t sourceBucketCount;
+
+        template<typename Fn>
+        DINLINE void forEachCandidate(uint32_t targetBucketSlot, Fn&& fn) const
+        {
+            auto const targetOrigin = targetRegions[targetBucketSlot].spatial.chart.origin;
+            for(uint32_t sourceBucketSlot = 0; sourceBucketSlot < sourceBucketCount; ++sourceBucketSlot)
+            {
+                auto const sourceOrigin = sourceRegions[sourceBucketSlot].spatial.chart.origin;
+                fn(pmacc::spearhed::RegionCandidate{sourceBucketSlot, sourceOrigin - targetOrigin, true});
+            }
+        }
+    };
+
+    template<typename T_TargetStore, typename T_SourceStore>
+    struct AllRegionsProvider
+    {
+        T_TargetStore* targetStore;
+        T_SourceStore* sourceStore;
+
+        auto deviceView() const
+        {
+            return AllRegionsProviderView{
+                targetStore->getDeviceDataBox(),
+                sourceStore->getDeviceDataBox(),
+                static_cast<uint32_t>(sourceStore->size)};
+        }
+    };
+
+    template<typename T_Translation>
+    struct SingleImageProviderView
+    {
+        T_Translation imageTranslation;
+
+        template<typename Fn>
+        DINLINE void forEachCandidate(uint32_t, Fn&& fn) const
+        {
+            fn(pmacc::spearhed::RegionCandidate{0u, imageTranslation, false});
+        }
+    };
+
+    template<typename T_Translation>
+    struct SingleImageProvider
+    {
+        T_Translation imageTranslation;
+
+        auto deviceView() const
+        {
+            return SingleImageProviderView{imageTranslation};
+        }
+    };
+
     /** Three particles share one broad-phase region; only the first two are within the exact radius. */
     struct ParticleCullSetup
     {
@@ -215,9 +275,9 @@ namespace
  * Helper: build an all-to-all NeighbourEntry for @p prBuf with @p numRegions regions.
  * Every target region neighbours every source region, useful for analytic validation.
  */
-auto makeAllToAllEntry(auto* prBuf, int numRegions)
+auto makeAllToAllEntry(auto* prBuf)
 {
-    using PRBufType = std::remove_pointer_t<decltype(prBuf)>;
+    int const numRegions = prBuf->size;
     int const totalNeighbours = numRegions * numRegions;
 
     pmacc::HostDeviceBuffer<unsigned int, 1> neighbourRegions(totalNeighbours);
@@ -235,7 +295,7 @@ auto makeAllToAllEntry(auto* prBuf, int numRegions)
     neighbourRegions.hostToDevice();
     regionOffsets.hostToDevice();
 
-    return pmacc::spearhed::NeighbourEntry<PRBufType>{prBuf, std::move(neighbourRegions), std::move(regionOffsets)};
+    return pmacc::spearhed::NeighbourEntry{prBuf, std::move(neighbourRegions), std::move(regionOffsets)};
 }
 
 TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration][particles][interaction]")
@@ -281,12 +341,8 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
         // Use an excessively large interaction radius so the distance check always passes
         constexpr double interactionRadius = 1e9;
 
-        using PRBufType = pmacc::spearhed::ParticleRegionBuffer<spearhed::PRType>;
         auto bundle = pmacc::spearhed::makeNeighbourBundle(
-            pmacc::spearhed::NeighbourEntry<PRBufType>{
-                prBuf.get(),
-                std::move(neighbourRegions),
-                std::move(regionOffsets)});
+            pmacc::spearhed::NeighbourEntry{prBuf.get(), std::move(neighbourRegions), std::move(regionOffsets)});
 
         auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
         pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
@@ -312,6 +368,49 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
         INFO("Expected Interactions: " << expectedInteractions);
 
         REQUIRE(h_count == expectedInteractions);
+    }
+
+
+    SECTION("CSR and all-regions providers produce the same analytic interaction")
+    {
+        constexpr int numRegions = 2;
+        auto setup = spearhed::EmptyNRegions<numRegions>{};
+        spearhed::InitRegions{}(*deviceHeap, setup);
+        spearhed::InitParticles{}(setup);
+
+        constexpr double interactionRadius = 1e9;
+        auto csrBundle = pmacc::spearhed::makeNeighbourBundle(makeAllToAllEntry(prBuf.get()));
+        auto allRegionsBundle = pmacc::spearhed::makeNeighbourBundle(
+            pmacc::spearhed::InteractionEntry{prBuf.get(), AllRegionsProvider{prBuf.get(), prBuf.get()}});
+
+        auto countInteractions = [&](auto& bundle)
+        {
+            pmacc::HostDeviceBuffer<uint64_t, 1> countBuffer(1u);
+            countBuffer.getHostBuffer().setValue(0u);
+            countBuffer.hostToDevice();
+
+            auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+            pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
+            pmacc::spearhed::interact(
+                sources,
+                *prBuf,
+                index,
+                interactionRadius,
+                InteractionCountFunc{},
+                countBuffer.getDeviceBuffer().getDataBox())
+                .waitForFinished();
+
+            countBuffer.deviceToHost();
+            return countBuffer.getHostBuffer().data()[0];
+        };
+
+        uint64_t totalParticles = 0u;
+        for(uint64_t i = 0; i < numRegions; ++i)
+            totalParticles += setup.baseNumParticlesToCreate * (i + 1u);
+        uint64_t const expected = totalParticles * (totalParticles - 1u);
+
+        REQUIRE(countInteractions(csrBundle) == expected);
+        REQUIRE(countInteractions(allRegionsBundle) == expected);
     }
 
 
@@ -344,6 +443,37 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
 
         countBuffer.deviceToHost();
         REQUIRE(countBuffer.getHostBuffer().data()[0] == 2u);
+    }
+
+
+    SECTION("a shifted image of the same frame is not classified as self")
+    {
+        ParticleCullSetup setup;
+        spearhed::InitRegions{}(*deviceHeap, setup);
+        spearhed::InitParticles{}(setup);
+
+        using Translation = pmacc::spearhed::Vec<spearhed::CS, pmacc::spearhed::ValueStorage<spearhed::CS>>;
+        auto bundle = pmacc::spearhed::makeNeighbourBundle(
+            pmacc::spearhed::InteractionEntry{prBuf.get(), SingleImageProvider{Translation{5.0f, 0.0f, 0.0f}}});
+
+        pmacc::HostDeviceBuffer<uint64_t, 1> countBuffer(1u);
+        countBuffer.getHostBuffer().setValue(0u);
+        countBuffer.hostToDevice();
+
+        auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+        pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
+        pmacc::spearhed::interact(
+            sources,
+            *prBuf,
+            index,
+            10.0f,
+            InteractionCountFunc{},
+            countBuffer.getDeviceBuffer().getDataBox())
+            .waitForFinished();
+
+        countBuffer.deviceToHost();
+        // All 3 x 3 directed pairs are accepted, including each particle's shifted image.
+        REQUIRE(countBuffer.getHostBuffer().data()[0] == 9u);
     }
 
 
@@ -483,8 +613,8 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
         spearhed::InitParticles{}(setup);
 
         // Two independent entries, both all-to-all.
-        auto entryA = makeAllToAllEntry(prBuf.get(), numRegions);
-        auto entryB = makeAllToAllEntry(prBuf.get(), numRegions);
+        auto entryA = makeAllToAllEntry(prBuf.get());
+        auto entryB = makeAllToAllEntry(prBuf.get());
 
         auto bundle = pmacc::spearhed::makeNeighbourBundle(std::move(entryA), std::move(entryB));
         // Verify bundle arity triggers the unified path.
@@ -535,8 +665,8 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
         spearhed::InitRegions{}(*deviceHeap, setup);
         spearhed::InitParticles{}(setup);
 
-        auto entryA = makeAllToAllEntry(prBuf.get(), numRegions);
-        auto entryB = makeAllToAllEntry(prBuf.get(), numRegions);
+        auto entryA = makeAllToAllEntry(prBuf.get());
+        auto entryB = makeAllToAllEntry(prBuf.get());
 
         auto bundle = pmacc::spearhed::makeNeighbourBundle(std::move(entryA), std::move(entryB));
 
@@ -592,7 +722,7 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
         spearhed::InitRegions{}(*deviceHeap, setup);
         spearhed::InitParticles{}(setup);
 
-        auto entry = makeAllToAllEntry(prBuf.get(), numRegions);
+        auto entry = makeAllToAllEntry(prBuf.get());
 
         auto bundle = pmacc::spearhed::makeNeighbourBundle(std::move(entry));
 
