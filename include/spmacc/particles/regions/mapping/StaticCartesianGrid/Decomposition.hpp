@@ -26,6 +26,11 @@
 
 namespace pmacc::spearhed
 {
+    /** @brief Selects implicit fixed-grid interaction-plan construction. */
+    struct FixedGridInteractionPlanStrategy
+    {
+    };
+
     namespace detail
     {
         struct FixedCartesianMappingState
@@ -43,6 +48,7 @@ namespace pmacc::spearhed
         using CoordinateSystemType = CS;
         using Store = T_Store;
         using Grid = FixedCartesianGrid<CS>;
+        using InteractionPlanStrategy = FixedGridInteractionPlanStrategy;
         static constexpr bool fixedGrid = true;
 
         FixedCartesianPreparedRegionSet(
@@ -252,7 +258,8 @@ namespace pmacc::spearhed
     }
 
     template<FixedGridPreparedRegionSet T_Target, typename T_Radius, FixedGridPreparedRegionSet... T_Sources>
-    [[nodiscard]] auto makeInteractionPlan(
+    [[nodiscard]] auto makeInteractionPlanImpl(
+        FixedGridInteractionPlanStrategy,
         T_Target const& target,
         InteractionQuery<T_Radius> const& query,
         T_Sources const&... sources)
@@ -261,7 +268,11 @@ namespace pmacc::spearhed
     }
 
     template<FixedGridPreparedRegionSet T_Target, typename T_Radius, FixedGridPreparedRegionSet... T_Sources>
-    [[nodiscard]] auto makeInteractionPlan(T_Target const& target, T_Radius radius, T_Sources const&... sources)
+    [[nodiscard]] auto makeInteractionPlanImpl(
+        FixedGridInteractionPlanStrategy,
+        T_Target const& target,
+        T_Radius radius,
+        T_Sources const&... sources)
     {
         return makeFixedGridInteractionPlan(target, InteractionQuery{radius}, sources...);
     }

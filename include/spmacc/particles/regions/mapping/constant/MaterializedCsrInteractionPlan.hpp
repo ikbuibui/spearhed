@@ -21,6 +21,11 @@
 
 namespace pmacc::spearhed
 {
+    /** @brief Selects materialized CSR construction for a prepared mapping. */
+    struct MaterializedCsrInteractionPlanStrategy
+    {
+    };
+
     /**
      * @brief Prepared state whose particle buckets expose material occupancy for CSR fallback construction.
      *
@@ -64,12 +69,13 @@ namespace pmacc::spearhed
         return Plan{std::move(bundle), std::tuple{target, sources...}};
     }
 
-    /** @brief Generic materialised-CSR fallback for a typed interaction query. */
+    /** @brief Materialized-CSR implementation of the generic plan customization point. */
     template<
         MaterializedCsrPreparedRegionSet T_Target,
         typename T_Radius,
         MaterializedCsrPreparedRegionSet... T_Sources>
-    [[nodiscard]] auto makeInteractionPlan(
+    [[nodiscard]] auto makeInteractionPlanImpl(
+        MaterializedCsrInteractionPlanStrategy,
         T_Target const& target,
         InteractionQuery<T_Radius> const& query,
         T_Sources const&... sources)
@@ -77,16 +83,17 @@ namespace pmacc::spearhed
         return makeMaterializedCsrInteractionPlan(target, query, sources...);
     }
 
-    /** @brief Compatibility overload for callers that pass only an interaction radius. */
+    /** @brief Compatibility implementation for callers that pass only an interaction radius. */
     template<
         MaterializedCsrPreparedRegionSet T_Target,
         typename T_Radius,
         MaterializedCsrPreparedRegionSet... T_Sources>
-    [[nodiscard]] auto makeInteractionPlan(
+    [[nodiscard]] auto makeInteractionPlanImpl(
+        MaterializedCsrInteractionPlanStrategy,
         T_Target const& target,
         T_Radius interactionRadius,
         T_Sources const&... sources)
     {
-        return makeInteractionPlan(target, InteractionQuery{interactionRadius}, sources...);
+        return makeMaterializedCsrInteractionPlan(target, InteractionQuery{interactionRadius}, sources...);
     }
 } // namespace pmacc::spearhed

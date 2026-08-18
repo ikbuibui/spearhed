@@ -15,10 +15,35 @@
 #include "spmacc/particles/spatial/PreparedRegionSet.hpp"
 
 #include <tuple>
+#include <type_traits>
 #include <utility>
 
 namespace pmacc::spearhed
 {
+    namespace detail
+    {
+        // Establish the customization name for the dependent call below. Concrete
+        // mapping implementations provide overloads selected by their strategy tag.
+        void makeInteractionPlanImpl() = delete;
+    } // namespace detail
+
+    /**
+     * @brief Construct an interaction plan using the prepared mapping's strategy.
+     *
+     * Prepared mappings select their concrete implementation through
+     * @c InteractionPlanStrategy. Control code therefore depends only on this
+     * interface, while mapping headers provide the corresponding implementation.
+     */
+    template<typename T_Target, typename... T_Args>
+    [[nodiscard]] constexpr decltype(auto) makeInteractionPlan(T_Target&& target, T_Args&&... args)
+    {
+        using detail::makeInteractionPlanImpl;
+        return makeInteractionPlanImpl(
+            typename std::remove_cvref_t<T_Target>::InteractionPlanStrategy{},
+            std::forward<T_Target>(target),
+            std::forward<T_Args>(args)...);
+    }
+
     /**
      * @brief An owning interaction bundle tied to prepared decomposition states.
      *

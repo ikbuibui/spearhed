@@ -39,6 +39,7 @@ namespace pmacc::spearhed
     {
     public:
         using Store = T_Store;
+        using InteractionPlanStrategy = MaterializedCsrInteractionPlanStrategy;
 
         MaterialAabbPreparedRegionSet(T_Store& store, std::shared_ptr<detail::MaterialAabbMappingState> state)
             : m_store(&store)
