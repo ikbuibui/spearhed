@@ -12,7 +12,7 @@
 #pragma once
 
 #include "spmacc/particles/regions/RegionBoundsUpdate.hpp"
-#include "spmacc/particles/spatial/MaterializedCsrInteractionPlan.hpp"
+#include "spmacc/particles/regions/mapping/constant/MaterializedCsrInteractionPlan.hpp"
 #include "spmacc/particles/spatial/PreparedRegionSet.hpp"
 
 #include <cassert>

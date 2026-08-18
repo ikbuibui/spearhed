@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "spmacc/particles/spatial/RegionCandidate.hpp"
+#include "spmacc/particles/regions/RegionCandidate.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 

@@ -25,7 +25,7 @@
 #include "spmacc/particles/regions/AABB.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 #include "spmacc/particles/regions/RegionRole.hpp"
-#include "spmacc/particles/spatial/DecompositionGroup.hpp"
+#include "spmacc/particles/regions/mapping/DecompositionGroup.hpp"
 
 #include <pmacc/Environment.hpp>
 

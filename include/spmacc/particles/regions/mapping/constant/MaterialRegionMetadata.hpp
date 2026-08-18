@@ -23,8 +23,8 @@
 #pragma once
 
 #include "spmacc/particles/regions/AABB.hpp"
-#include "spmacc/particles/spatial/RegionChart.hpp"
-#include "spmacc/particles/spatial/WorldAABB.hpp"
+#include "spmacc/particles/regions/RegionChart.hpp"
+#include "spmacc/particles/regions/WorldAABB.hpp"
 
 namespace pmacc::spearhed
 {

@@ -26,7 +26,7 @@
 #include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/particles/regions/AABB.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
-#include "spmacc/particles/spatial/DecompositionGroup.hpp"
+#include "spmacc/particles/regions/mapping/DecompositionGroup.hpp"
 #include "spmacc/topology/Cartesian.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
@@ -48,7 +48,7 @@ namespace spearhed
         // Every registered species belongs to exactly one decomposition group. The
         // default keeps the current material-AABB layout shared by all species;
         // custom setups can split, for example, movable fluid and static boundaries.
-        using DecompositionGroups = std::tuple<pmacc::spearhed::MaterialAabbSpeciesDecompositionGroup<
+        using DecompositionGroups = std::tuple<pmacc::spearhed::StaticMappingDecompositionGroup<
             pmacc::spearhed::species::Default,
             pmacc::spearhed::species::Boundary,
             pmacc::spearhed::species::Tracer>>;

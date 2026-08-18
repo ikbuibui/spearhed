@@ -56,8 +56,8 @@
 #include "spmacc/particles/regions/NeighbourRegions.hpp"
 #include "spmacc/particles/regions/RegionBoundsUpdate.hpp"
 #include "spmacc/particles/regions/RegionRole.hpp"
-#include "spmacc/particles/spatial/DecompositionGroup.hpp"
-#include "spmacc/particles/spatial/MaterialAabbDecomposition.hpp"
+#include "spmacc/particles/regions/mapping/DecompositionGroup.hpp"
+#include "spmacc/particles/regions/mapping/constant/Decomposition.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
@@ -99,9 +99,9 @@ namespace
         // Fluid and wall deliberately have independent group lifecycles. The frozen wall mapping
         // is retained until explicitly invalidated; tracer remains an empty configured group here.
         using DecompositionGroups = std::tuple<
-            pmacc::spearhed::MaterialAabbSpeciesDecompositionGroup<pmacc::spearhed::species::Default>,
-            pmacc::spearhed::StaticMaterialAabbSpeciesDecompositionGroup<pmacc::spearhed::species::Boundary>,
-            pmacc::spearhed::MaterialAabbSpeciesDecompositionGroup<pmacc::spearhed::species::Tracer>>;
+            pmacc::spearhed::StaticMappingDecompositionGroup<pmacc::spearhed::species::Default>,
+            pmacc::spearhed::ExplicitInvalidationDecompositionGroup<pmacc::spearhed::species::Boundary>,
+            pmacc::spearhed::StaticMappingDecompositionGroup<pmacc::spearhed::species::Tracer>>;
 
         // Required by SetupInterface concept - represents the interior region's domain
         pmacc::spearhed::AABB<spearhed::CS> domain{{0, 0}, {-1.0f, -1.0f}, {1.0f, 1.0f}};

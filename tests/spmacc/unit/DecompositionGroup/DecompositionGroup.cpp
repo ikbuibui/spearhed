@@ -9,7 +9,7 @@
  * (at your option) any later version.
  */
 
-#include "spmacc/particles/spatial/DecompositionGroup.hpp"
+#include "spmacc/particles/regions/mapping/DecompositionGroup.hpp"
 
 #include "spearhed/ParticleDefinition.hpp"
 
@@ -22,18 +22,18 @@ namespace
     namespace species = pmacc::spearhed::species;
 
     using SeparateMaterialDecompositionGroups = std::tuple<
-        pmacc::spearhed::MaterialAabbSpeciesDecompositionGroup<species::Default>,
-        pmacc::spearhed::MaterialAabbSpeciesDecompositionGroup<species::Boundary>,
-        pmacc::spearhed::MaterialAabbSpeciesDecompositionGroup<species::Tracer>>;
+        pmacc::spearhed::StaticMappingDecompositionGroup<species::Default>,
+        pmacc::spearhed::StaticMappingDecompositionGroup<species::Boundary>,
+        pmacc::spearhed::StaticMappingDecompositionGroup<species::Tracer>>;
 
     using SeparateStaticBoundaryDecompositionGroups = std::tuple<
-        pmacc::spearhed::MaterialAabbSpeciesDecompositionGroup<species::Default>,
-        pmacc::spearhed::StaticMaterialAabbSpeciesDecompositionGroup<species::Boundary>,
-        pmacc::spearhed::MaterialAabbSpeciesDecompositionGroup<species::Tracer>>;
+        pmacc::spearhed::StaticMappingDecompositionGroup<species::Default>,
+        pmacc::spearhed::ExplicitInvalidationDecompositionGroup<species::Boundary>,
+        pmacc::spearhed::StaticMappingDecompositionGroup<species::Tracer>>;
 
     using DuplicateDefaultDecompositionGroups = std::tuple<
-        pmacc::spearhed::MaterialAabbSpeciesDecompositionGroup<species::Default, species::Boundary>,
-        pmacc::spearhed::MaterialAabbSpeciesDecompositionGroup<species::Default, species::Tracer>>;
+        pmacc::spearhed::StaticMappingDecompositionGroup<species::Default, species::Boundary>,
+        pmacc::spearhed::StaticMappingDecompositionGroup<species::Default, species::Tracer>>;
 } // namespace
 
 TEST_CASE("Decomposition-group declarations assign each registered species exactly once", "[spatial][decomposition]")

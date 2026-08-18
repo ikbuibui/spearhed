@@ -24,7 +24,7 @@
 #include "spearhed/param.hpp"
 #include "spearhed/param/setup.hpp"
 #include "spearhed/sph/SphKernel.hpp"
-#include "spmacc/particles/spatial/DecompositionGroup.hpp"
+#include "spmacc/particles/regions/mapping/DecompositionGroup.hpp"
 
 #include <pmacc/simulationControl/Checkpointing.hpp>
 #include <pmacc/simulationControl/SimulationHelper.hpp>

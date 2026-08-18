@@ -13,9 +13,9 @@
 
 #include "spmacc/particles/algorithms/FrameIndex.hpp"
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
+#include "spmacc/particles/regions/mapping/constant/MaterializedCsrInteractionPlan.hpp"
 #include "spmacc/particles/spatial/InteractionPlan.hpp"
 #include "spmacc/particles/spatial/InteractionQuery.hpp"
-#include "spmacc/particles/spatial/MaterializedCsrInteractionPlan.hpp"
 
 #include <pmacc/eventSystem/events/EventTask.hpp>
 

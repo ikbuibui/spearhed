@@ -13,7 +13,7 @@
 
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 #include "spmacc/particles/regions/RegionRole.hpp"
-#include "spmacc/particles/spatial/MaterialAabbDecomposition.hpp"
+#include "spmacc/particles/regions/mapping/constant/Decomposition.hpp"
 
 #include <pmacc/Environment.hpp>
 
@@ -33,14 +33,14 @@ namespace pmacc::spearhed
      * species.
      */
     template<SpeciesTag... T_Species>
-    struct MaterialAabbSpeciesDecompositionGroup
+    struct StaticMappingDecompositionGroup
     {
         using SpeciesList = std::tuple<T_Species...>;
     };
 
     /** @brief A material group prepared only after an explicit invalidation. */
     template<SpeciesTag... T_Species>
-    struct StaticMaterialAabbSpeciesDecompositionGroup
+    struct ExplicitInvalidationDecompositionGroup
     {
         using SpeciesList = std::tuple<T_Species...>;
     };
@@ -48,25 +48,22 @@ namespace pmacc::spearhed
     namespace detail
     {
         template<typename T>
-        struct IsMaterialAabbSpeciesDecompositionGroup : std::false_type
+        struct IsDecompositionGroup : std::false_type
         {
         };
 
         template<SpeciesTag... T_Species>
-        struct IsMaterialAabbSpeciesDecompositionGroup<MaterialAabbSpeciesDecompositionGroup<T_Species...>>
-            : std::true_type
+        struct IsDecompositionGroup<StaticMappingDecompositionGroup<T_Species...>> : std::true_type
         {
         };
 
         template<SpeciesTag... T_Species>
-        struct IsMaterialAabbSpeciesDecompositionGroup<StaticMaterialAabbSpeciesDecompositionGroup<T_Species...>>
-            : std::true_type
+        struct IsDecompositionGroup<ExplicitInvalidationDecompositionGroup<T_Species...>> : std::true_type
         {
         };
 
         template<typename T>
-        inline constexpr bool isMaterialAabbSpeciesDecompositionGroup
-            = IsMaterialAabbSpeciesDecompositionGroup<T>::value;
+        inline constexpr bool isDecompositionGroup = IsDecompositionGroup<T>::value;
 
         template<typename T_Species, typename T_Group>
         struct GroupSpeciesCount : std::integral_constant<std::size_t, 0u>
@@ -74,13 +71,13 @@ namespace pmacc::spearhed
         };
 
         template<typename T_Species, SpeciesTag... T_GroupSpecies>
-        struct GroupSpeciesCount<T_Species, MaterialAabbSpeciesDecompositionGroup<T_GroupSpecies...>>
+        struct GroupSpeciesCount<T_Species, StaticMappingDecompositionGroup<T_GroupSpecies...>>
             : std::integral_constant<std::size_t, (std::size_t{0u} + ... + std::same_as<T_Species, T_GroupSpecies>)>
         {
         };
 
         template<typename T_Species, SpeciesTag... T_GroupSpecies>
-        struct GroupSpeciesCount<T_Species, StaticMaterialAabbSpeciesDecompositionGroup<T_GroupSpecies...>>
+        struct GroupSpeciesCount<T_Species, ExplicitInvalidationDecompositionGroup<T_GroupSpecies...>>
             : std::integral_constant<std::size_t, (std::size_t{0u} + ... + std::same_as<T_Species, T_GroupSpecies>)>
         {
         };
@@ -95,21 +92,19 @@ namespace pmacc::spearhed
         };
 
         template<SpeciesTag... T_GroupSpecies, SpeciesTag... T_Species>
-        struct GroupOnlyUses<MaterialAabbSpeciesDecompositionGroup<T_GroupSpecies...>, std::tuple<T_Species...>>
+        struct GroupOnlyUses<StaticMappingDecompositionGroup<T_GroupSpecies...>, std::tuple<T_Species...>>
             : std::bool_constant<
                   (sizeof...(T_GroupSpecies) > 0u)
-                  && ((GroupSpeciesCount<T_GroupSpecies, MaterialAabbSpeciesDecompositionGroup<T_Species...>>::value
-                       == 1u)
+                  && ((GroupSpeciesCount<T_GroupSpecies, StaticMappingDecompositionGroup<T_Species...>>::value == 1u)
                       && ...)>
         {
         };
 
         template<SpeciesTag... T_GroupSpecies, SpeciesTag... T_Species>
-        struct GroupOnlyUses<StaticMaterialAabbSpeciesDecompositionGroup<T_GroupSpecies...>, std::tuple<T_Species...>>
+        struct GroupOnlyUses<ExplicitInvalidationDecompositionGroup<T_GroupSpecies...>, std::tuple<T_Species...>>
             : std::bool_constant<
                   (sizeof...(T_GroupSpecies) > 0u)
-                  && ((GroupSpeciesCount<T_GroupSpecies, StaticMaterialAabbSpeciesDecompositionGroup<T_Species...>>::
-                           value
+                  && ((GroupSpeciesCount<T_GroupSpecies, ExplicitInvalidationDecompositionGroup<T_Species...>>::value
                        == 1u)
                       && ...)>
         {
@@ -123,7 +118,7 @@ namespace pmacc::spearhed
         template<typename... T_Groups, SpeciesTag... T_Species>
         struct IsDecompositionGroupAssignmentFor<std::tuple<T_Groups...>, std::tuple<T_Species...>>
             : std::bool_constant<
-                  (sizeof...(T_Groups) > 0u) && (isMaterialAabbSpeciesDecompositionGroup<T_Groups> && ...)
+                  (sizeof...(T_Groups) > 0u) && (isDecompositionGroup<T_Groups> && ...)
                   && (GroupOnlyUses<T_Groups, std::tuple<T_Species...>>::value && ...)
                   && ((groupSpeciesCount<T_Species, T_Groups...> == 1u) && ...)>
         {
@@ -135,7 +130,7 @@ namespace pmacc::spearhed
         template<SpeciesTag... T_Species>
         struct DefaultDecompositionGroups<std::tuple<T_Species...>>
         {
-            using type = std::tuple<MaterialAabbSpeciesDecompositionGroup<T_Species...>>;
+            using type = std::tuple<StaticMappingDecompositionGroup<T_Species...>>;
         };
 
         template<typename T_Setup, typename T_Registry, typename = void>
@@ -241,7 +236,7 @@ namespace pmacc::spearhed
         struct DecompositionGroupRuntime;
 
         template<SpeciesRegistryTag T_Registry, SpeciesTag... T_Species>
-        struct DecompositionGroupRuntime<T_Registry, MaterialAabbSpeciesDecompositionGroup<T_Species...>>
+        struct DecompositionGroupRuntime<T_Registry, StaticMappingDecompositionGroup<T_Species...>>
         {
             using Decomposition
                 = MaterialAabbDecomposition<ParticleRegionBuffer<typename T_Registry::template PRType<T_Species>>...>;
@@ -259,7 +254,7 @@ namespace pmacc::spearhed
         };
 
         template<SpeciesRegistryTag T_Registry, SpeciesTag... T_Species>
-        struct DecompositionGroupRuntime<T_Registry, StaticMaterialAabbSpeciesDecompositionGroup<T_Species...>>
+        struct DecompositionGroupRuntime<T_Registry, ExplicitInvalidationDecompositionGroup<T_Species...>>
         {
             using Decomposition
                 = MaterialAabbDecomposition<ParticleRegionBuffer<typename T_Registry::template PRType<T_Species>>...>;

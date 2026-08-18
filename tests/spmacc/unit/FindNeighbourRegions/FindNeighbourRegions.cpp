@@ -24,8 +24,8 @@
 #include "spearhed/particles/initialization/InitRegions.hpp"
 #include "spearhed/test/SpearhedParticleFixture.hpp"
 #include "spmacc/particles/regions/NeighbourRegions.hpp"
-#include "spmacc/particles/spatial/RegionChart.hpp"
-#include "spmacc/particles/spatial/WorldAABB.hpp"
+#include "spmacc/particles/regions/RegionChart.hpp"
+#include "spmacc/particles/regions/WorldAABB.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>

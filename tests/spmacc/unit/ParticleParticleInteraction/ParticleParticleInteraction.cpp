@@ -27,9 +27,9 @@
 #include "spmacc/particles/algorithms/InteractParticles.hpp"
 #include "spmacc/particles/regions/NeighbourBundle.hpp"
 #include "spmacc/particles/regions/NeighbourRegions.hpp"
+#include "spmacc/particles/regions/RegionCandidate.hpp"
 #include "spmacc/particles/spatial/CandidateProvider.hpp"
 #include "spmacc/particles/spatial/InteractionEntry.hpp"
-#include "spmacc/particles/spatial/RegionCandidate.hpp"
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>

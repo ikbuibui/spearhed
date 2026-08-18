@@ -28,7 +28,7 @@
 #include "spmacc/particles/algorithms/LaunchForEach.hpp"
 #include "spmacc/particles/attributes/RelativePosition.hpp"
 #include "spmacc/particles/regions/ParticleRegion.hpp"
-#include "spmacc/particles/spatial/MaterialAabbDecomposition.hpp"
+#include "spmacc/particles/regions/mapping/constant/Decomposition.hpp"
 #include "spmacc/topology/CartesianStorage.hpp"
 #include "spmacc/topology/CoordinateSystem.hpp"
 
