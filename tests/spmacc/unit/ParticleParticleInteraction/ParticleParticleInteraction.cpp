@@ -344,7 +344,7 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
         auto bundle = pmacc::spearhed::makeNeighbourBundle(
             pmacc::spearhed::NeighbourEntry{prBuf.get(), std::move(neighbourRegions), std::move(regionOffsets)});
 
-        auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+        auto sources = bundle.selectByRole(pmacc::spearhed::roles::source);
         pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
         pmacc::spearhed::interact(sources, *prBuf, index, interactionRadius, InteractionCountFunc{}, d_count)
             .waitForFinished();
@@ -389,7 +389,7 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
             countBuffer.getHostBuffer().setValue(0u);
             countBuffer.hostToDevice();
 
-            auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+            auto sources = bundle.selectByRole(pmacc::spearhed::roles::source);
             pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
             pmacc::spearhed::interact(
                 sources,
@@ -430,7 +430,7 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
         countBuffer.getHostBuffer().setValue(0u);
         countBuffer.hostToDevice();
 
-        auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+        auto sources = bundle.selectByRole(pmacc::spearhed::roles::source);
         pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
         pmacc::spearhed::interact(
             sources,
@@ -460,7 +460,7 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
         countBuffer.getHostBuffer().setValue(0u);
         countBuffer.hostToDevice();
 
-        auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+        auto sources = bundle.selectByRole(pmacc::spearhed::roles::source);
         pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
         pmacc::spearhed::interact(
             sources,
@@ -485,7 +485,7 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
 
         constexpr spearhed::Real interactionRadius{10.0f};
         auto bundle = pmacc::spearhed::calculateNeighbours(*prBuf, interactionRadius, *prBuf);
-        auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+        auto sources = bundle.selectByRole(pmacc::spearhed::roles::source);
         pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
 
         pmacc::HostDeviceBuffer<uint64_t, 1> countBuffer(1u);
@@ -513,7 +513,7 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
         emptySource.create(0u);
 
         auto bundle = pmacc::spearhed::calculateNeighbours(*prBuf, 1.0f, emptySource);
-        auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+        auto sources = bundle.selectByRole(pmacc::spearhed::roles::source);
         pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
 
         pmacc::HostDeviceBuffer<uint64_t, 1> countBuffer(1u);
@@ -573,7 +573,7 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
                 std::move(neighbourRegions),
                 std::move(regionOffsets)});
 
-        auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+        auto sources = bundle.selectByRole(pmacc::spearhed::roles::source);
         pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
         pmacc::spearhed::interact(sources, *prBuf, index, interactionRadius, StageDerivedFunc{}, d_sum)
             .waitForFinished();
@@ -628,7 +628,7 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
 
         constexpr double interactionRadius = 1e9;
 
-        auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+        auto sources = bundle.selectByRole(pmacc::spearhed::roles::source);
         pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
         pmacc::spearhed::interact(sources, *prBuf, index, interactionRadius, InteractionCountFunc{}, d_count)
             .waitForFinished();
@@ -678,7 +678,7 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
 
         constexpr double interactionRadius = 1e9;
 
-        auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+        auto sources = bundle.selectByRole(pmacc::spearhed::roles::source);
         pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
 
         // Force per-source launches even though bundle size == 2.
@@ -734,7 +734,7 @@ TEST_CASE_METHOD(ParticleFixture, "InteractParticles validation", "[integration]
 
         constexpr double interactionRadius = 1e9;
 
-        auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+        auto sources = bundle.selectByRole(pmacc::spearhed::roles::source);
         pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{*prBuf};
 
         // Force unified kernel even though bundle size == 1.

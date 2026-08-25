@@ -119,7 +119,7 @@ TEST_CASE_METHOD(
     using Groups = pmacc::spearhed::
         DecompositionGroupSet<spearhed::AllSpecies, FixedAndMaterialDecompositionGroups, FixedGridSetup, Allocator>;
     Groups groups{setup, deviceHeap->getAllocatorHandle()};
-    auto& store = groups.template storeFor<species::Default>();
+    auto& store = groups.storeFor(species::Default{});
     REQUIRE(store.size == 2);
 
     groups.prepareAfterMotion();
@@ -140,7 +140,7 @@ TEST_CASE_METHOD(
     using Groups = pmacc::spearhed::
         DecompositionGroupSet<spearhed::AllSpecies, AdaptiveAndMaterialDecompositionGroups, AdaptiveSetup, Allocator>;
     Groups groups{setup, deviceHeap->getAllocatorHandle()};
-    auto& store = groups.template storeFor<species::Default>();
+    auto& store = groups.storeFor(species::Default{});
     auto const topologyBefore = store.topologyVersion;
 
     groups.prepareAfterMotion();

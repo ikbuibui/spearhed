@@ -262,7 +262,7 @@ namespace spearhed
             auto& dc = pmacc::Environment<>::get().DataConnector();
 
             using PRBuf = pmacc::spearhed::ParticleRegionBuffer<PRTypeFor<Species>>;
-            auto const id = pmacc::spearhed::prBufId<Species>();
+            auto const id = pmacc::spearhed::prBufId(Species{});
             if(!dc.hasId(id))
                 return; // species not used by this setup
             auto& prBuf = *dc.get<PRBuf>(id);

@@ -297,14 +297,14 @@ namespace pmacc::spearhed
             [[nodiscard]] static type create(T_Setup const& setup, T_Allocator const& allocator)
             {
                 auto& dc = pmacc::Environment<>::get().DataConnector();
-                [[maybe_unused]] bool const allStoresPresent = (dc.hasId(prBufId<T_Species>()) && ...);
+                [[maybe_unused]] bool const allStoresPresent = (dc.hasId(prBufId(T_Species{})) && ...);
                 assert(allStoresPresent && "configured species must have a particle buffer");
                 return type{
                     T_Factory{}(
                         setup,
                         allocator,
                         *dc.get<ParticleRegionBuffer<typename T_Registry::template PRType<T_Species>>>(
-                            prBufId<T_Species>())...),
+                            prBufId(T_Species{}))...),
                     T_Preparation};
             }
         };
@@ -346,37 +346,39 @@ namespace pmacc::spearhed
                 std::apply([](auto&... group) { (group.prepareAfterMotion(), ...); }, m_groups);
             }
 
-            template<SpeciesTag T_Species>
-            [[nodiscard]] decltype(auto) groupFor()
+            [[nodiscard]] decltype(auto) groupFor(SpeciesTag auto species)
             {
+                using T_Species = decltype(species);
                 return (std::get<groupIndex<T_Species>()>(m_groups));
             }
 
-            template<SpeciesTag T_Species>
-            [[nodiscard]] decltype(auto) groupFor() const
+            [[nodiscard]] decltype(auto) groupFor(SpeciesTag auto species) const
             {
+                using T_Species = decltype(species);
                 return (std::get<groupIndex<T_Species>()>(m_groups));
             }
 
-            template<SpeciesTag T_Species>
-            [[nodiscard]] auto& storeFor()
+            [[nodiscard]] auto& storeFor(SpeciesTag auto species)
             {
+                using T_Species = decltype(species);
                 using Store = ParticleRegionBuffer<typename T_Registry::template PRType<T_Species>>;
                 auto& dc = pmacc::Environment<>::get().DataConnector();
-                assert(dc.hasId(prBufId<T_Species>()) && "configured species must have a particle buffer");
-                return *dc.get<Store>(prBufId<T_Species>());
+                assert(dc.hasId(prBufId(species)) && "configured species must have a particle buffer");
+                return *dc.get<Store>(prBufId(species));
             }
 
             template<typename T_Store>
             [[nodiscard]] auto preparedFor(T_Store& store)
             {
-                return groupFor<typename T_Store::Species>().preparedFor(store);
+                using Species = typename T_Store::Species;
+                return groupFor(Species{}).preparedFor(store);
             }
 
             template<typename T_Store>
             [[nodiscard]] auto preparedFor(T_Store& store) const
             {
-                return groupFor<typename T_Store::Species>().preparedFor(store);
+                using Species = typename T_Store::Species;
+                return groupFor(Species{}).preparedFor(store);
             }
 
         private:

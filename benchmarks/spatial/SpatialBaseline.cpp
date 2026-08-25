@@ -177,7 +177,7 @@ namespace
         acceptedPairCount.getHostBuffer().setValue(0u);
         acceptedPairCount.hostToDevice();
         auto countBox = acceptedPairCount.getDeviceBuffer().getDataBox();
-        auto sources = plan.template selectByRole<pmacc::spearhed::roles::Source>();
+        auto sources = plan.selectByRole(pmacc::spearhed::roles::source);
 
         pmacc::spearhed::interact(
             sources,

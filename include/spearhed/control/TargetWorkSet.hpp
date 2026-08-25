@@ -158,10 +158,9 @@ namespace spearhed
     class TargetFrameIndexCache<T_Registry, std::tuple<T_Targets...>>
     {
     public:
-        template<pmacc::spearhed::SpeciesTag T_Species>
-        [[nodiscard]] auto& forTarget(
-            pmacc::spearhed::ParticleRegionBuffer<typename T_Registry::template PRType<T_Species>>& target)
+        [[nodiscard]] auto& forTarget(auto& target)
         {
+            using T_Species = typename std::remove_cvref_t<decltype(target)>::Species;
             constexpr std::size_t index = indexFor<T_Species>();
             auto& cached = std::get<index>(m_indices);
             if(!cached)
@@ -278,13 +277,13 @@ namespace spearhed
             T_Query const& query,
             std::tuple<T_Sources...>)
         {
-            auto& target = groups.template storeFor<T_Target>();
+            auto& target = groups.storeFor(T_Target{});
             auto targetPrepared = groups.preparedFor(target);
             auto plan = pmacc::spearhed::makeInteractionPlan(
                 targetPrepared,
                 query,
-                groups.preparedFor(groups.template storeFor<T_Sources>())...);
-            auto& frameIndex = frameIndices.template forTarget<T_Target>(target);
+                groups.preparedFor(groups.storeFor(T_Sources{}))...);
+            auto& frameIndex = frameIndices.forTarget(target);
 
             using TargetStore = std::remove_cvref_t<decltype(target)>;
             using TargetPrepared = std::remove_cvref_t<decltype(targetPrepared)>;
@@ -323,7 +322,7 @@ namespace spearhed
         template<typename T_Groups, typename Fn, pmacc::spearhed::SpeciesTag... T_Targets>
         void forEachTargetStore(T_Groups& groups, Fn&& fn, std::tuple<T_Targets...>)
         {
-            (fn(groups.template storeFor<T_Targets>()), ...);
+            (fn(groups.storeFor(T_Targets{})), ...);
         }
     } // namespace detail
 

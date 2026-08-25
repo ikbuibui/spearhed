@@ -88,7 +88,7 @@ namespace spearhed
             // A zero-sized buffer represents a configured species with no current particle buckets.
             // It is intentionally still registered so every declared decomposition group can attach
             // its complete compile-time species pack without runtime-subset specialisation.
-            auto const id = pmacc::spearhed::prBufId<Species>();
+            auto const id = pmacc::spearhed::prBufId(Species{});
             std::shared_ptr<PRBuf> prBuf;
             if(dc.hasId(id))
                 prBuf = dc.get<PRBuf>(id); // reuse a pre-shared buffer (e.g. test fixture)

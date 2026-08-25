@@ -94,7 +94,7 @@ namespace
     template<typename TGroups>
     HydroResults runDensityAndHydro(TGroups& groups, float h0, float queryRadius)
     {
-        auto& store = groups.template storeFor<pmacc::spearhed::species::Default>();
+        auto& store = groups.storeFor(pmacc::spearhed::species::Default{});
         pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{store};
         auto prepared = groups.preparedFor(store);
         auto plan
@@ -147,7 +147,7 @@ namespace
 
         using Allocator = decltype(deviceHeap.getAllocatorHandle());
         GroupSetFor<TSetup, Allocator> groups{setup, deviceHeap.getAllocatorHandle()};
-        auto& store = groups.template storeFor<pmacc::spearhed::species::Default>();
+        auto& store = groups.storeFor(pmacc::spearhed::species::Default{});
         pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, store, SeedSplitVelocities{});
         groups.prepareAfterMotion();
         return runDensityAndHydro(groups, h0, queryRadius);
@@ -198,7 +198,7 @@ TEST_CASE_METHOD(
         MixedMappingSetup,
         Allocator>;
     Groups groups{setup, deviceHeap->getAllocatorHandle()};
-    REQUIRE(groups.template storeFor<pmacc::spearhed::species::Tracer>().size == 2);
+    REQUIRE(groups.storeFor(pmacc::spearhed::species::Tracer{}).size == 2);
     pmacc::eventSystem::waitForAllTasks();
 }
 
@@ -218,7 +218,7 @@ TEST_CASE_METHOD(
         MixedMappingSetup,
         Allocator>;
     Groups groups{setup, deviceHeap->getAllocatorHandle()};
-    auto& store = groups.template storeFor<pmacc::spearhed::species::Default>();
+    auto& store = groups.storeFor(pmacc::spearhed::species::Default{});
     pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, store, SeedSplitVelocities{});
     groups.prepareAfterMotion();
     REQUIRE(store.size == 2);
@@ -241,7 +241,7 @@ TEST_CASE_METHOD(
         MixedMappingSetup,
         Allocator>;
     Groups groups{setup, deviceHeap->getAllocatorHandle()};
-    auto& store = groups.template storeFor<pmacc::spearhed::species::Default>();
+    auto& store = groups.storeFor(pmacc::spearhed::species::Default{});
     pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, store, SeedSplitVelocities{});
     groups.prepareAfterMotion();
     auto target = groups.preparedFor(store);
@@ -254,7 +254,7 @@ TEST_CASE_METHOD(
     auto fixedProvider = pmacc::spearhed::makeCandidateProvider(
         target,
         query,
-        groups.preparedFor(groups.template storeFor<pmacc::spearhed::species::Tracer>()));
+        groups.preparedFor(groups.storeFor(pmacc::spearhed::species::Tracer{})));
     fixedProvider.regionOffsets.deviceToHost();
     pmacc::eventSystem::waitForAllTasks();
     REQUIRE(fixedProvider.regionOffsets.getHostBuffer().getDataBox()[2] == 4u);
@@ -277,7 +277,7 @@ TEST_CASE_METHOD(
     using Groups
         = pmacc::spearhed::DecompositionGroupSet<spearhed::AllSpecies, Setup::DecompositionGroups, Setup, Allocator>;
     Groups groups{setup, deviceHeap->getAllocatorHandle()};
-    auto& store = groups.template storeFor<pmacc::spearhed::species::Default>();
+    auto& store = groups.storeFor(pmacc::spearhed::species::Default{});
     pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, store, SeedSplitVelocities{});
 
     pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{store};

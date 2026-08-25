@@ -115,29 +115,25 @@ namespace pmacc::spearhed
             return bundle.select(predicate);
         }
 
-        template<RoleTag R>
-        auto selectByRole()
+        auto selectByRole(RoleTag auto role)
         {
             assertCurrent();
-            return bundle.template selectByRole<R>();
+            return bundle.selectByRole(role);
         }
 
-        template<RoleTag R>
-        auto selectByRole() const
+        auto selectByRole(RoleTag auto role) const
         {
             assertCurrent();
-            return bundle.template selectByRole<R>();
+            return bundle.selectByRole(role);
         }
 
-        template<SpeciesTag S>
-        auto& bySpecies(S species = {})
+        auto& bySpecies(SpeciesTag auto species)
         {
             assertCurrent();
             return bundle.bySpecies(species);
         }
 
-        template<SpeciesTag S>
-        auto const& bySpecies(S species = {}) const
+        auto const& bySpecies(SpeciesTag auto species) const
         {
             assertCurrent();
             return bundle.bySpecies(species);

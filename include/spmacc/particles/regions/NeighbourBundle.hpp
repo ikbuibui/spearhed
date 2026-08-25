@@ -163,17 +163,17 @@ namespace pmacc::spearhed
 
         // Specific entry access
 
-        template<SpeciesTag S>
-        auto& bySpecies(S = {})
+        auto& bySpecies(SpeciesTag auto species)
         {
+            using S = decltype(species);
             constexpr std::size_t idx = llama_lite::indexOfType<S, typename Entries::Species...>();
             static_assert(idx < sizeof...(Entries), "Species not present in NeighbourBundle");
             return detail::deref(std::get<idx>(entries));
         }
 
-        template<SpeciesTag S>
-        auto const& bySpecies(S = {}) const
+        auto const& bySpecies(SpeciesTag auto species) const
         {
+            using S = decltype(species);
             constexpr std::size_t idx = llama_lite::indexOfType<S, typename Entries::Species...>();
             static_assert(idx < sizeof...(Entries), "Species not present in NeighbourBundle");
             return detail::deref(std::get<idx>(entries));
@@ -201,40 +201,38 @@ namespace pmacc::spearhed
 
         // Convenience wrappers
 
-        template<RoleTag R>
-        auto selectByRole()
+        auto selectByRole(RoleTag auto role)
         {
+            using R = decltype(role);
             return select(pred::HasRole<R>{});
         }
 
-        template<RoleTag R>
-        auto selectByRole() const
+        auto selectByRole(RoleTag auto role) const
         {
+            using R = decltype(role);
             return select(pred::HasRole<R>{});
         }
 
-        template<SpeciesTag S>
-        auto selectBySpecies()
+        auto selectBySpecies(SpeciesTag auto species)
         {
+            using S = decltype(species);
             return select(pred::IsSpecies<S>{});
         }
 
-        template<SpeciesTag S>
-        auto selectBySpecies() const
+        auto selectBySpecies(SpeciesTag auto species) const
         {
+            using S = decltype(species);
             return select(pred::IsSpecies<S>{});
         }
 
-        template<SpeciesTag... S>
-        auto selectSpecies()
+        auto selectSpecies(SpeciesTag auto... species)
         {
-            return select(pred::IsAnySpecies<S...>{});
+            return select(pred::IsAnySpecies<decltype(species)...>{});
         }
 
-        template<SpeciesTag... S>
-        auto selectSpecies() const
+        auto selectSpecies(SpeciesTag auto... species) const
         {
-            return select(pred::IsAnySpecies<S...>{});
+            return select(pred::IsAnySpecies<decltype(species)...>{});
         }
     };
 

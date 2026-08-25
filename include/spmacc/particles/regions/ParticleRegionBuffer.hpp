@@ -74,7 +74,7 @@ namespace pmacc::spearhed
 
         SimulationDataId getUniqueId() override
         {
-            return prBufId<Species>();
+            return prBufId(Species{});
         }
 
         std::optional<pmacc::HostDeviceBuffer<ParticleRegionType, DIM1>> buffer;

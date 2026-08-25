@@ -661,7 +661,7 @@ TEST_CASE_METHOD(
         // Re-initialize and compute via the manual code path (explicit index, same internals as UpdateDensity).
         pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, *prBuf, spearhed::DensityInitSelf<K>{});
         {
-            auto sources = bundle.template selectByRole<pmacc::spearhed::roles::Source>();
+            auto sources = bundle.selectByRole(pmacc::spearhed::roles::source);
             using PRType = spearhed::PRType;
             pmacc::spearhed::FrameIndexBuffer<PRType> index{*prBuf};
             pmacc::spearhed::interact(sources, *prBuf, index, interactionRadius, spearhed::AccumulateDensity<K>{})
@@ -705,9 +705,9 @@ TEST_CASE_METHOD(
 
         // The non-targeted tracer remains a valid configured zero-sized store, so a static
         // decomposition-group/work-set type never depends on a runtime present-species subset.
-        REQUIRE(dc.hasId(pmacc::spearhed::prBufId<species::Tracer>()));
+        REQUIRE(dc.hasId(pmacc::spearhed::prBufId(species::Tracer{})));
         auto& tracer = *dc.get<pmacc::spearhed::ParticleRegionBuffer<spearhed::PRTypeFor<species::Tracer>>>(
-            pmacc::spearhed::prBufId<species::Tracer>());
+            pmacc::spearhed::prBufId(species::Tracer{}));
 
         REQUIRE(prBuf->size == 1);
         REQUIRE(boundary.size == 1);

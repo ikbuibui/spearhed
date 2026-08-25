@@ -193,7 +193,7 @@ namespace pmacc::spearhed
             auto& dc = pmacc::Environment<>::get().DataConnector();
             using BufferType = pmacc::spearhed::ParticleRegionBuffer<T_ParticleRegion>;
             using Species = typename T_ParticleRegion::Species;
-            updateMaterialAabbBounds(*dc.get<BufferType>(prBufId<Species>()));
+            updateMaterialAabbBounds(*dc.get<BufferType>(prBufId(Species{})));
         }
     };
 } // namespace pmacc::spearhed
