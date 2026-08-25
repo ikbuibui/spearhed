@@ -23,7 +23,7 @@
 #include "spmacc/Frame.hpp"
 #include "spmacc/particles/regions/ParticleRegion.hpp"
 #include "spmacc/particles/regions/RegionRole.hpp"
-#include "spmacc/particles/regions/mapping/constant/MaterialRegionMetadata.hpp"
+#include "spmacc/particles/regions/mapping/MaterialRegionMetadata.hpp"
 
 #include <pmacc/meta/Pair.hpp>
 #include <pmacc/meta/conversion/MakeSeq.hpp>
