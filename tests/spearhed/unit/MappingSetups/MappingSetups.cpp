@@ -12,6 +12,7 @@
 #include "spearhed/MappingSetups/FixedCartesian.hpp"
 #include "spearhed/MappingSetups/MaterialAabb.hpp"
 #include "spearhed/ParticleDefinition.hpp"
+#include "spearhed/memory.hpp"
 #include "spearhed/particles/attributes/Acceleration.hpp"
 #include "spearhed/particles/attributes/Density.hpp"
 #include "spearhed/particles/attributes/DuDt.hpp"
@@ -31,6 +32,12 @@
 
 #include <pmacc/eventSystem/waitForAllTasks.hpp>
 
+#include <array>
+#include <cstdint>
+#include <map>
+#include <vector>
+
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 namespace
@@ -75,6 +82,76 @@ namespace
             particle[spearhed::tags::dvdt][pmacc::spearhed::tags::z] = 0.0f;
         }
     };
+
+    /** One row of per-particle hydro results: density, dvdt.x, dvdt.y, dvdt.z, keyed by global id. */
+    using HydroResults = std::map<uint64_t, std::array<float, 4>>;
+
+    /**
+     * Runs density+hydro over @p groups' default store and snapshots per-particle results.
+     * The frame index is (re)built after preparation, so a call after an adaptive split reads
+     * the new topology.
+     */
+    template<typename TGroups>
+    HydroResults runDensityAndHydro(TGroups& groups, float h0, float queryRadius)
+    {
+        auto& store = groups.template storeFor<pmacc::spearhed::species::Default>();
+        pmacc::spearhed::FrameIndexBuffer<spearhed::PRType> index{store};
+        auto prepared = groups.preparedFor(store);
+        auto plan
+            = pmacc::spearhed::makeInteractionPlan(prepared, pmacc::spearhed::InteractionQuery{queryRadius}, prepared);
+        spearhed::UpdateDensity<spearhed::CubicSplineKernel>{}(plan, store, index, h0).waitForFinished();
+        spearhed::UpdateHydroForces<spearhed::CubicSplineKernel>{spearhed::gamma_eos}(plan, store, index, h0)
+            .waitForFinished();
+
+        store.buffer->deviceToHost();
+        int64_t const heapOffset = spearhed::syncHeapToHost();
+        auto const hostRegions = store.buffer->getHostBuffer().getDataBox();
+
+        HydroResults results;
+        for(int regionIdx = 0; regionIdx < store.size; ++regionIdx)
+        {
+            auto const& frameList = hostRegions(regionIdx).particleFrameList;
+            for(auto const& frame : frameList.hostIterable(heapOffset))
+            {
+                for(uint32_t slot = 0; slot < spearhed::numFrameSlots; ++slot)
+                {
+                    auto const particle = frame[slot];
+                    if(!particle[pmacc::spearhed::tags::multiMask])
+                        continue;
+                    std::array<float, 4> row;
+                    row[0] = particle[spearhed::tags::density];
+                    row[1] = particle[spearhed::tags::dvdt][pmacc::spearhed::tags::x];
+                    row[2] = particle[spearhed::tags::dvdt][pmacc::spearhed::tags::y];
+                    row[3] = particle[spearhed::tags::dvdt][pmacc::spearhed::tags::z];
+                    results[particle[spearhed::tags::particleId]] = row;
+                }
+            }
+        }
+        return results;
+    }
+
+    template<typename TSetup, typename Allocator>
+    using GroupSetFor = pmacc::spearhed::
+        DecompositionGroupSet<spearhed::AllSpecies, typename TSetup::DecompositionGroups, TSetup, Allocator>;
+
+    template<typename TSetup>
+    HydroResults runIdenticalScene(spearhed::DeviceHeap& deviceHeap, float h0, float queryRadius)
+    {
+        auto& dc = pmacc::Environment<spearhed::simDim>::get().DataConnector();
+        dc.template get<pmacc::IdProvider>("globalId")->reset();
+
+        TSetup setup;
+        setup.totalParticles = 2u;
+        spearhed::InitRegions{}(deviceHeap, setup);
+        spearhed::InitParticles{}(setup);
+
+        using Allocator = decltype(deviceHeap.getAllocatorHandle());
+        GroupSetFor<TSetup, Allocator> groups{setup, deviceHeap.getAllocatorHandle()};
+        auto& store = groups.template storeFor<pmacc::spearhed::species::Default>();
+        pmacc::spearhed::launchForEach(pmacc::spearhed::levels::particle, store, SeedSplitVelocities{});
+        groups.prepareAfterMotion();
+        return runDensityAndHydro(groups, h0, queryRadius);
+    }
 } // namespace
 
 TEST_CASE("mapping setup examples compile", "[spatial][mapping-setups]")
@@ -223,4 +300,30 @@ TEST_CASE_METHOD(
     REQUIRE(store.topologyVersion == topologyBefore + 1u);
     REQUIRE(index.builtVersion == store.topologyVersion);
     REQUIRE(groups.preparedFor(store).generation() == 2u);
+}
+
+TEST_CASE_METHOD(
+    spearhed::test::SpearhedParticleFixture<spearhed::simDim>,
+    "adaptive velocity split reproduces material density and forces for an identical scene",
+    "[spatial][mapping-setups]")
+{
+    constexpr float h0 = 0.5f;
+    constexpr float queryRadius = 1.0f;
+    auto const material = runIdenticalScene<spearhed::mapping_setups::MaterialAabbSetup>(*deviceHeap, h0, queryRadius);
+    auto const adaptive
+        = runIdenticalScene<spearhed::mapping_setups::AdaptiveVelocitySplitSetup>(*deviceHeap, h0, queryRadius);
+
+    REQUIRE(material.size() == 2u);
+    REQUIRE(adaptive.size() == 2u);
+    for(auto const& [id, materialRow] : material)
+    {
+        auto const adaptiveIt = adaptive.find(id);
+        REQUIRE(adaptiveIt != adaptive.end());
+        for(size_t c = 0; c < 4u; ++c)
+        {
+            REQUIRE(
+                static_cast<double>(adaptiveIt->second[c])
+                == Catch::Approx(static_cast<double>(materialRow[c])).margin(1e-6));
+        }
+    }
 }
