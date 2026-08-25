@@ -84,7 +84,8 @@ namespace pmacc::spearhed
      * @brief In-place inclusive prefix sum on a HostDeviceBuffer<uint32_t> via the host.
      *
      * Copies the buffer device to host, computes arr[i] += arr[i-1] for i in [1, size),
-     * then copies back host to device.
+     * then copies non-zero scans back to the device. A zero sum leaves the already-zero device
+     * buffer unchanged and avoids queuing a redundant asynchronous copy.
      *
      * @param buf   Buffer populated by a device kernel.
      * @param size  Number of elements to scan (must be <= buf capacity).
@@ -98,7 +99,8 @@ namespace pmacc::spearhed
         for(int i = 1; i < size; ++i)
             data[i] += data[i - 1];
         uint32_t const total = data[size - 1];
-        buf.hostToDevice();
+        if(total != 0u)
+            buf.hostToDevice();
         return total;
     }
 
