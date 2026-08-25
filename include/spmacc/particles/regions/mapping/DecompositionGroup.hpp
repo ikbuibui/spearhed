@@ -13,6 +13,8 @@
 
 #include "spmacc/particles/regions/ParticleRegionBuffer.hpp"
 #include "spmacc/particles/regions/RegionRole.hpp"
+#include "spmacc/particles/regions/mapping/AdaptiveSplit/Decomposition.hpp"
+#include "spmacc/particles/regions/mapping/StaticCartesianGrid/Decomposition.hpp"
 #include "spmacc/particles/regions/mapping/constant/Decomposition.hpp"
 
 #include <pmacc/Environment.hpp>
@@ -25,25 +27,95 @@
 
 namespace pmacc::spearhed
 {
-    /**
-     * @brief Setup-level declaration of species that share a material-AABB decomposition.
-     *
-     * The declaration names species membership only. It deliberately does not
-     * identify particle storage, which remains one ParticleRegionBuffer per
-     * species.
-     */
-    template<SpeciesTag... T_Species>
-    struct StaticMappingDecompositionGroup
+    /** @brief Controls when a decomposition group's mapping is prepared. */
+    enum class DecompositionGroupPreparation
     {
-        using SpeciesList = std::tuple<T_Species...>;
+        EveryMotion,
+        OnInvalidation
     };
 
-    /** @brief A material group prepared only after an explicit invalidation. */
-    template<SpeciesTag... T_Species>
-    struct ExplicitInvalidationDecompositionGroup
+    /** @brief Structural setup declaration for one concrete mapping factory. */
+    template<typename T_Factory, DecompositionGroupPreparation T_Preparation, SpeciesTag... T_Species>
+    struct DecompositionGroupDeclaration
     {
+        using Factory = T_Factory;
         using SpeciesList = std::tuple<T_Species...>;
+        static constexpr auto preparation = T_Preparation;
     };
+
+    /** @brief Factory retaining the existing material-AABB decomposition. */
+    struct MaterialAabbDecompositionFactory
+    {
+        template<typename T_Setup, typename T_Allocator, typename... T_Stores>
+        [[nodiscard]] auto operator()(T_Setup const&, T_Allocator const&, T_Stores&... stores) const
+        {
+            return MaterialAabbDecomposition<T_Stores...>{stores...};
+        }
+    };
+
+    /** @brief Factory that classifies setup buckets into one dense fixed Cartesian grid. */
+    template<typename T_GridFactory>
+    struct FixedCartesianDecompositionFactory
+    {
+        template<typename T_Setup, typename T_Allocator, typename... T_Stores>
+        [[nodiscard]] auto operator()(T_Setup const& setup, T_Allocator const& allocator, T_Stores&... stores) const
+        {
+            auto const grid = T_GridFactory{}(setup);
+            using Grid = std::remove_cvref_t<decltype(grid)>;
+            FixedCartesianDecomposition<typename Grid::CoordinateSystemType, T_Stores...> decomposition{
+                grid,
+                stores...};
+            (decomposition.initializeFromMaterial(stores, allocator), ...);
+            return decomposition;
+        }
+    };
+
+    /** @brief Factory for adaptive mappings with setup-owned trigger and partition values. */
+    template<typename T_TriggerFactory, typename T_PartitionFactory>
+    struct AdaptiveSplitDecompositionFactory
+    {
+        template<typename T_Setup, typename T_Allocator, typename... T_Stores>
+        [[nodiscard]] auto operator()(T_Setup const& setup, T_Allocator const&, T_Stores&... stores) const
+        {
+            return AdaptiveSplitDecomposition{T_TriggerFactory{}(setup), T_PartitionFactory{}(setup), stores...};
+        }
+    };
+
+    template<SpeciesTag... T_Species>
+    using MaterialAabbDecompositionGroup = DecompositionGroupDeclaration<
+        MaterialAabbDecompositionFactory,
+        DecompositionGroupPreparation::EveryMotion,
+        T_Species...>;
+
+    template<SpeciesTag... T_Species>
+    using ExplicitInvalidationMaterialGroup = DecompositionGroupDeclaration<
+        MaterialAabbDecompositionFactory,
+        DecompositionGroupPreparation::OnInvalidation,
+        T_Species...>;
+
+    template<typename T_GridFactory, SpeciesTag... T_Species>
+    using FixedCartesianDecompositionGroup = DecompositionGroupDeclaration<
+        FixedCartesianDecompositionFactory<T_GridFactory>,
+        DecompositionGroupPreparation::EveryMotion,
+        T_Species...>;
+
+    template<typename T_TriggerFactory, typename T_PartitionFactory, SpeciesTag... T_Species>
+    using AdaptiveSplitDecompositionGroup = DecompositionGroupDeclaration<
+        AdaptiveSplitDecompositionFactory<T_TriggerFactory, T_PartitionFactory>,
+        DecompositionGroupPreparation::EveryMotion,
+        T_Species...>;
+
+    /** @brief Placeholder context used only by legacy material-only group sets. */
+    struct NoDecompositionContext
+    {
+    };
+
+    // Temporary names retained for setup compatibility.
+    template<SpeciesTag... T_Species>
+    using StaticMappingDecompositionGroup = MaterialAabbDecompositionGroup<T_Species...>;
+
+    template<SpeciesTag... T_Species>
+    using ExplicitInvalidationDecompositionGroup = ExplicitInvalidationMaterialGroup<T_Species...>;
 
     namespace detail
     {
@@ -52,13 +124,9 @@ namespace pmacc::spearhed
         {
         };
 
-        template<SpeciesTag... T_Species>
-        struct IsDecompositionGroup<StaticMappingDecompositionGroup<T_Species...>> : std::true_type
-        {
-        };
-
-        template<SpeciesTag... T_Species>
-        struct IsDecompositionGroup<ExplicitInvalidationDecompositionGroup<T_Species...>> : std::true_type
+        template<typename T_Factory, DecompositionGroupPreparation T_Preparation, SpeciesTag... T_Species>
+        struct IsDecompositionGroup<DecompositionGroupDeclaration<T_Factory, T_Preparation, T_Species...>>
+            : std::true_type
         {
         };
 
@@ -70,14 +138,12 @@ namespace pmacc::spearhed
         {
         };
 
-        template<typename T_Species, SpeciesTag... T_GroupSpecies>
-        struct GroupSpeciesCount<T_Species, StaticMappingDecompositionGroup<T_GroupSpecies...>>
-            : std::integral_constant<std::size_t, (std::size_t{0u} + ... + std::same_as<T_Species, T_GroupSpecies>)>
-        {
-        };
-
-        template<typename T_Species, SpeciesTag... T_GroupSpecies>
-        struct GroupSpeciesCount<T_Species, ExplicitInvalidationDecompositionGroup<T_GroupSpecies...>>
+        template<
+            typename T_Species,
+            typename T_Factory,
+            DecompositionGroupPreparation T_Preparation,
+            SpeciesTag... T_GroupSpecies>
+        struct GroupSpeciesCount<T_Species, DecompositionGroupDeclaration<T_Factory, T_Preparation, T_GroupSpecies...>>
             : std::integral_constant<std::size_t, (std::size_t{0u} + ... + std::same_as<T_Species, T_GroupSpecies>)>
         {
         };
@@ -91,20 +157,19 @@ namespace pmacc::spearhed
         {
         };
 
-        template<SpeciesTag... T_GroupSpecies, SpeciesTag... T_Species>
-        struct GroupOnlyUses<StaticMappingDecompositionGroup<T_GroupSpecies...>, std::tuple<T_Species...>>
+        template<
+            typename T_Factory,
+            DecompositionGroupPreparation T_Preparation,
+            SpeciesTag... T_GroupSpecies,
+            SpeciesTag... T_Species>
+        struct GroupOnlyUses<
+            DecompositionGroupDeclaration<T_Factory, T_Preparation, T_GroupSpecies...>,
+            std::tuple<T_Species...>>
             : std::bool_constant<
                   (sizeof...(T_GroupSpecies) > 0u)
-                  && ((GroupSpeciesCount<T_GroupSpecies, StaticMappingDecompositionGroup<T_Species...>>::value == 1u)
-                      && ...)>
-        {
-        };
-
-        template<SpeciesTag... T_GroupSpecies, SpeciesTag... T_Species>
-        struct GroupOnlyUses<ExplicitInvalidationDecompositionGroup<T_GroupSpecies...>, std::tuple<T_Species...>>
-            : std::bool_constant<
-                  (sizeof...(T_GroupSpecies) > 0u)
-                  && ((GroupSpeciesCount<T_GroupSpecies, ExplicitInvalidationDecompositionGroup<T_Species...>>::value
+                  && ((GroupSpeciesCount<
+                           T_GroupSpecies,
+                           DecompositionGroupDeclaration<T_Factory, T_Preparation, T_Species...>>::value
                        == 1u)
                       && ...)>
         {
@@ -130,7 +195,7 @@ namespace pmacc::spearhed
         template<SpeciesTag... T_Species>
         struct DefaultDecompositionGroups<std::tuple<T_Species...>>
         {
-            using type = std::tuple<StaticMappingDecompositionGroup<T_Species...>>;
+            using type = std::tuple<MaterialAabbDecompositionGroup<T_Species...>>;
         };
 
         template<typename T_Setup, typename T_Registry, typename = void>
@@ -144,41 +209,22 @@ namespace pmacc::spearhed
         {
             using type = typename T_Setup::DecompositionGroups;
         };
-
     } // namespace detail
 
-    /** @brief The setup's declared groups, or one backward-compatible material group when omitted. */
     template<typename T_Setup, SpeciesRegistryTag T_Registry>
     using DecompositionGroupsFor = typename detail::DecompositionGroupsFor<T_Setup, T_Registry>::type;
 
-    /** @brief True iff every registered species occurs in exactly one declared decomposition group. */
     template<typename T_Assignment, typename T_Registry>
     concept DecompositionGroupAssignmentFor
         = SpeciesRegistryTag<T_Registry>
           && detail::IsDecompositionGroupAssignmentFor<T_Assignment, typename T_Registry::List>::value;
 
-    /** @brief Controls when a decomposition group's mapping is prepared. */
-    enum class DecompositionGroupPreparation
-    {
-        EveryMotion,
-        OnInvalidation
-    };
-
-    /**
-     * @brief Owns one decomposition lifecycle for a species decomposition group.
-     *
-     * A dynamic group is prepared on every call after particles move. A static
-     * group is prepared once, then must be explicitly invalidated when its
-     * storage or geometry changes. In both cases preparedFor() is read-only and
-     * forwards the decomposition's generation-checked handle.
-     */
+    /** @brief Owns one decomposition lifecycle for a species decomposition group. */
     template<typename T_Decomposition>
     class DecompositionGroup
     {
     public:
-        explicit DecompositionGroup(
-            T_Decomposition decomposition,
-            DecompositionGroupPreparation preparation = DecompositionGroupPreparation::EveryMotion)
+        explicit DecompositionGroup(T_Decomposition decomposition, DecompositionGroupPreparation preparation)
             : m_decomposition(std::move(decomposition))
             , m_preparation(preparation)
         {
@@ -188,12 +234,10 @@ namespace pmacc::spearhed
         {
             if(m_preparation == DecompositionGroupPreparation::OnInvalidation && m_isPrepared)
                 return;
-
             m_decomposition.prepareAfterMotion();
             m_isPrepared = true;
         }
 
-        /** @brief Require the next prepareAfterMotion() to establish a new mapping generation. */
         void invalidate()
         {
             m_isPrepared = false;
@@ -226,60 +270,53 @@ namespace pmacc::spearhed
         bool m_isPrepared = false;
     };
 
-    template<typename T_Decomposition>
-    DecompositionGroup(T_Decomposition, DecompositionGroupPreparation = DecompositionGroupPreparation::EveryMotion)
-        -> DecompositionGroup<T_Decomposition>;
-
     namespace detail
     {
-        template<SpeciesRegistryTag T_Registry, typename T_Group>
+        template<SpeciesRegistryTag T_Registry, typename T_Group, typename T_Setup, typename T_Allocator>
         struct DecompositionGroupRuntime;
 
-        template<SpeciesRegistryTag T_Registry, SpeciesTag... T_Species>
-        struct DecompositionGroupRuntime<T_Registry, StaticMappingDecompositionGroup<T_Species...>>
+        template<
+            SpeciesRegistryTag T_Registry,
+            typename T_Factory,
+            DecompositionGroupPreparation T_Preparation,
+            SpeciesTag... T_Species,
+            typename T_Setup,
+            typename T_Allocator>
+        struct DecompositionGroupRuntime<
+            T_Registry,
+            DecompositionGroupDeclaration<T_Factory, T_Preparation, T_Species...>,
+            T_Setup,
+            T_Allocator>
         {
-            using Decomposition
-                = MaterialAabbDecomposition<ParticleRegionBuffer<typename T_Registry::template PRType<T_Species>>...>;
+            using Decomposition = decltype(T_Factory{}(
+                std::declval<T_Setup const&>(),
+                std::declval<T_Allocator const&>(),
+                std::declval<ParticleRegionBuffer<typename T_Registry::template PRType<T_Species>>&>()...));
             using type = DecompositionGroup<Decomposition>;
 
-            [[nodiscard]] static type create()
+            [[nodiscard]] static type create(T_Setup const& setup, T_Allocator const& allocator)
             {
                 auto& dc = pmacc::Environment<>::get().DataConnector();
                 [[maybe_unused]] bool const allStoresPresent = (dc.hasId(prBufId<T_Species>()) && ...);
                 assert(allStoresPresent && "configured species must have a particle buffer");
                 return type{
-                    Decomposition{*dc.get<ParticleRegionBuffer<typename T_Registry::template PRType<T_Species>>>(
-                        prBufId<T_Species>())...}};
-            }
-        };
-
-        template<SpeciesRegistryTag T_Registry, SpeciesTag... T_Species>
-        struct DecompositionGroupRuntime<T_Registry, ExplicitInvalidationDecompositionGroup<T_Species...>>
-        {
-            using Decomposition
-                = MaterialAabbDecomposition<ParticleRegionBuffer<typename T_Registry::template PRType<T_Species>>...>;
-            using type = DecompositionGroup<Decomposition>;
-
-            [[nodiscard]] static type create()
-            {
-                auto& dc = pmacc::Environment<>::get().DataConnector();
-                [[maybe_unused]] bool const allStoresPresent = (dc.hasId(prBufId<T_Species>()) && ...);
-                assert(allStoresPresent && "configured species must have a particle buffer");
-                return type{
-                    Decomposition{*dc.get<ParticleRegionBuffer<typename T_Registry::template PRType<T_Species>>>(
-                        prBufId<T_Species>())...},
-                    DecompositionGroupPreparation::OnInvalidation};
+                    T_Factory{}(
+                        setup,
+                        allocator,
+                        *dc.get<ParticleRegionBuffer<typename T_Registry::template PRType<T_Species>>>(
+                            prBufId<T_Species>())...),
+                    T_Preparation};
             }
         };
 
         template<typename T_Species, typename T_Group>
         inline constexpr bool groupContainsSpecies = GroupSpeciesCount<T_Species, T_Group>::value == 1u;
 
-        template<SpeciesRegistryTag T_Registry, typename T_Assignment>
+        template<SpeciesRegistryTag T_Registry, typename T_Assignment, typename T_Setup, typename T_Allocator>
         struct DecompositionGroupSet;
 
-        template<SpeciesRegistryTag T_Registry, typename... T_Groups>
-        struct DecompositionGroupSet<T_Registry, std::tuple<T_Groups...>>
+        template<SpeciesRegistryTag T_Registry, typename T_Setup, typename T_Allocator, typename... T_Groups>
+        struct DecompositionGroupSet<T_Registry, std::tuple<T_Groups...>, T_Setup, T_Allocator>
         {
             static_assert(
                 IsDecompositionGroupAssignmentFor<std::tuple<T_Groups...>, typename T_Registry::List>::value,
@@ -287,13 +324,23 @@ namespace pmacc::spearhed
 
             using Registry = T_Registry;
             using Assignment = std::tuple<T_Groups...>;
-            using RuntimeGroups = std::tuple<typename DecompositionGroupRuntime<T_Registry, T_Groups>::type...>;
+            using RuntimeGroups
+                = std::tuple<typename DecompositionGroupRuntime<T_Registry, T_Groups, T_Setup, T_Allocator>::type...>;
 
-            DecompositionGroupSet() : m_groups(DecompositionGroupRuntime<T_Registry, T_Groups>::create()...)
+            DecompositionGroupSet(T_Setup const& setup, T_Allocator const& allocator)
+                : m_groups(
+                      DecompositionGroupRuntime<T_Registry, T_Groups, T_Setup, T_Allocator>::create(
+                          setup,
+                          allocator)...)
             {
             }
 
-            /** @brief Prepare every group once; static groups skip unchanged generations themselves. */
+            DecompositionGroupSet()
+                requires(std::default_initializable<T_Setup> && std::default_initializable<T_Allocator>)
+                : DecompositionGroupSet(T_Setup{}, T_Allocator{})
+            {
+            }
+
             void prepareAfterMotion()
             {
                 std::apply([](auto&... group) { (group.prepareAfterMotion(), ...); }, m_groups);
@@ -350,7 +397,10 @@ namespace pmacc::spearhed
         };
     } // namespace detail
 
-    /** @brief Simulation-wide owning set of configured decomposition groups. */
-    template<SpeciesRegistryTag T_Registry, typename T_Assignment>
-    using DecompositionGroupSet = detail::DecompositionGroupSet<T_Registry, T_Assignment>;
+    template<
+        SpeciesRegistryTag T_Registry,
+        typename T_Assignment,
+        typename T_Setup = NoDecompositionContext,
+        typename T_Allocator = NoDecompositionContext>
+    using DecompositionGroupSet = detail::DecompositionGroupSet<T_Registry, T_Assignment, T_Setup, T_Allocator>;
 } // namespace pmacc::spearhed

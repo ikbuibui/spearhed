@@ -42,6 +42,7 @@ namespace pmacc::spearhed
     template<CoordinateSystem CS>
     struct FixedCartesianGrid
     {
+        using CoordinateSystemType = CS;
         using Axis = typename CS::T_Axis;
         using Point = pmacc::spearhed::Point<CS, ValueStorage<CS>>;
         using Vec = pmacc::spearhed::Vec<CS, ValueStorage<CS>>;

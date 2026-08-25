@@ -12,6 +12,9 @@
 #pragma once
 
 #include "spmacc/particles/regions/NeighbourBundle.hpp"
+#include "spmacc/particles/spatial/InteractionEntry.hpp"
+#include "spmacc/particles/spatial/InteractionQuery.hpp"
+#include "spmacc/particles/spatial/PairCandidateProvider.hpp"
 #include "spmacc/particles/spatial/PreparedRegionSet.hpp"
 
 #include <tuple>
@@ -22,37 +25,26 @@ namespace pmacc::spearhed
 {
     namespace detail
     {
-        // Establish the customization name for the dependent call below. Concrete
-        // mapping implementations provide overloads selected by their strategy tag.
-        void makeInteractionPlanImpl() = delete;
+        void makeCandidateProviderImpl() = delete;
     } // namespace detail
 
-    /**
-     * @brief Construct an interaction plan using the prepared mapping's strategy.
-     *
-     * Prepared mappings select their concrete implementation through
-     * @c InteractionPlanStrategy. Control code therefore depends only on this
-     * interface, while mapping headers provide the corresponding implementation.
-     */
-    template<typename T_Target, typename... T_Args>
-    [[nodiscard]] constexpr decltype(auto) makeInteractionPlan(T_Target&& target, T_Args&&... args)
+    /** @brief Select a candidate provider from the target/source mapping pair. */
+    template<PreparedRegionSet T_Target, typename T_Radius, PreparedRegionSet T_Source>
+    [[nodiscard]] constexpr decltype(auto) makeCandidateProvider(
+        T_Target const& target,
+        InteractionQuery<T_Radius> const& query,
+        T_Source const& source)
     {
-        using detail::makeInteractionPlanImpl;
-        return makeInteractionPlanImpl(
-            typename std::remove_cvref_t<T_Target>::InteractionPlanStrategy{},
-            std::forward<T_Target>(target),
-            std::forward<T_Args>(args)...);
+        using detail::makeCandidateProviderImpl;
+        return makeCandidateProviderImpl(
+            typename std::remove_cvref_t<T_Target>::MappingTag{},
+            typename std::remove_cvref_t<T_Source>::MappingTag{},
+            target,
+            query,
+            source);
     }
 
-    /**
-     * @brief An owning interaction bundle tied to prepared decomposition states.
-     *
-     * The wrapped bundle owns candidate data (currently CSR buffers). Prepared
-     * states retain the mapping metadata and make accidental use after a newer
-     * preparation detectable in debug builds. Selected views retain the
-     * existing NeighbourBundle lifetime rule: their parent plan must outlive
-     * queued interaction kernels.
-     */
+    /** @brief An owning interaction bundle tied to prepared decomposition states. */
     template<IsNeighbourBundle T_Bundle, PreparedRegionSet... T_Prepared>
     struct InteractionPlan
     {
@@ -151,6 +143,38 @@ namespace pmacc::spearhed
             return bundle.bySpecies(species);
         }
     };
+
+    /** @brief Assemble one heterogeneous candidate provider per prepared source. */
+    template<PreparedRegionSet T_Target, typename T_Radius, PreparedRegionSet... T_Sources>
+    [[nodiscard]] auto makeInteractionPlan(
+        T_Target const& target,
+        InteractionQuery<T_Radius> const& query,
+        T_Sources const&... sources)
+    {
+        target.assertCurrent();
+        if constexpr(sizeof...(sources) > 0u)
+            (sources.assertCurrent(), ...);
+
+        // Construct each owning provider before moving entries into the bundle. Function-argument
+        // pack evaluation order is unspecified, while CSR construction launches maintenance work.
+        auto entries
+            = std::tuple{InteractionEntry{&sources.store(), makeCandidateProvider(target, query, sources)}...};
+        auto bundle
+            = std::apply([](auto&&... entry) { return makeNeighbourBundle(std::move(entry)...); }, std::move(entries));
+        using Plan = InteractionPlan<
+            std::remove_cvref_t<decltype(bundle)>,
+            std::remove_cvref_t<T_Target>,
+            std::remove_cvref_t<T_Sources>...>;
+        return Plan{std::move(bundle), std::tuple{target, sources...}};
+    }
+
+    /** @brief Compatibility overload for callers that pass only an interaction radius. */
+    template<PreparedRegionSet T_Target, typename T_Radius, PreparedRegionSet... T_Sources>
+    requires(!requires(T_Radius const& radius) { radius.radius; })
+    [[nodiscard]] auto makeInteractionPlan(T_Target const& target, T_Radius radius, T_Sources const&... sources)
+    {
+        return makeInteractionPlan(target, InteractionQuery{radius}, sources...);
+    }
 
     namespace detail
     {

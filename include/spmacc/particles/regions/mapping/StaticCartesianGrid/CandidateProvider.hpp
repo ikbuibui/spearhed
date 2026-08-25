@@ -4,6 +4,8 @@
  *
  * PMacc is free software: you can redistribute it and/or modify
  * it under the terms of either the GNU General Public License or
+ * the GNU Lesser General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  */
 
@@ -19,15 +21,7 @@
 
 namespace pmacc::spearhed
 {
-    /**
-     * @brief Implicit same-grid candidate enumerator.
-     *
-     * This intentionally tests target and source cell geometry for every
-     * possible source slot rather than deriving an unverified integer stencil
-     * radius.  It is the Phase-5 correctness baseline: candidate data is not
-     * materialised in CSR buffers, and a later specialised stencil may only
-     * replace this implementation after proving equivalent coverage.
-     */
+    /** @brief Implicit fixed-grid candidate enumerator for one grid pair. */
     template<CoordinateSystem CS>
     struct FixedGridCandidateProviderView
     {
@@ -35,16 +29,17 @@ namespace pmacc::spearhed
         using Grid = FixedCartesianGrid<CS>;
         using Vec = typename Grid::Vec;
 
-        Grid grid;
+        Grid targetGrid;
+        Grid sourceGrid;
         Axis cutoff;
         std::array<uint32_t, CS::dimension> imageRadius;
 
         template<typename Fn>
         HDINLINE void forEachCandidate(uint32_t targetBucketSlot, Fn&& fn) const
         {
-            auto const targetSearchBounds = grid.ownershipBounds(targetBucketSlot).expand(cutoff);
-            auto const targetOrigin = grid.chart(targetBucketSlot).origin;
-            uint32_t const numSources = grid.bucketCount();
+            auto const targetSearchBounds = targetGrid.ownershipBounds(targetBucketSlot).expand(cutoff);
+            auto const targetOrigin = targetGrid.chart(targetBucketSlot).origin;
+            uint32_t const numSources = sourceGrid.bucketCount();
             uint32_t const numImages = imageCount();
 
             // Loop bounds depend only on the target slot and the provider value. Every worker in
@@ -52,8 +47,8 @@ namespace pmacc::spearhed
             // requires for callbacks containing block barriers.
             for(uint32_t sourceBucketSlot = 0u; sourceBucketSlot < numSources; ++sourceBucketSlot)
             {
-                auto const sourceBounds = grid.ownershipBounds(sourceBucketSlot);
-                auto const sourceOrigin = grid.chart(sourceBucketSlot).origin;
+                auto const sourceBounds = sourceGrid.ownershipBounds(sourceBucketSlot);
+                auto const sourceOrigin = sourceGrid.chart(sourceBucketSlot).origin;
                 for(uint32_t image = 0u; image < numImages; ++image)
                 {
                     auto const translation = imageTranslation(image);
@@ -77,7 +72,7 @@ namespace pmacc::spearhed
         {
             uint32_t count = 1u;
             for(uint32_t axis = 0u; axis < CS::dimension; ++axis)
-                count *= grid.periodic[axis] ? (2u * imageRadius[axis] + 1u) : 1u;
+                count *= sourceGrid.periodic[axis] ? (2u * imageRadius[axis] + 1u) : 1u;
             return count;
         }
 
@@ -87,12 +82,13 @@ namespace pmacc::spearhed
             pmacc::spearhed::for_each_enum_tag<CS>(
                 [&](auto i, auto tag)
                 {
-                    if(!grid.periodic[i.value])
+                    if(!sourceGrid.periodic[i.value])
                         return;
                     uint32_t const width = 2u * imageRadius[i.value] + 1u;
                     int const coordinate = static_cast<int>(image % width) - static_cast<int>(imageRadius[i.value]);
                     image /= width;
-                    translation[tag] = static_cast<Axis>(coordinate) * (grid.domain.max[tag] - grid.domain.min[tag]);
+                    translation[tag]
+                        = static_cast<Axis>(coordinate) * (sourceGrid.domain.max[tag] - sourceGrid.domain.min[tag]);
                 });
             return translation;
         }
@@ -110,26 +106,28 @@ namespace pmacc::spearhed
         using Axis = typename CS::T_Axis;
         using Grid = FixedCartesianGrid<CS>;
 
-        FixedGridCandidateProvider(Grid const& grid, Axis cutoff) : grid(grid), cutoff(cutoff)
+        FixedGridCandidateProvider(Grid const& targetGrid, Grid const& sourceGrid, Axis cutoff)
+            : targetGrid(targetGrid)
+            , sourceGrid(sourceGrid)
+            , cutoff(cutoff)
         {
             pmacc::spearhed::for_each_enum_tag<CS>(
                 [&](auto i, auto tag)
                 {
-                    if(!grid.periodic[i.value])
+                    if(!sourceGrid.periodic[i.value])
                         return;
-                    Axis const domainExtent = grid.domain.max[tag] - grid.domain.min[tag];
-                    // Include every image that can reach the cutoff plus one boundary image. The
-                    // geometry test in the view removes superfluous candidates.
+                    Axis const domainExtent = sourceGrid.domain.max[tag] - sourceGrid.domain.min[tag];
                     imageRadius[i.value] = static_cast<uint32_t>(cutoff / domainExtent) + 1u;
                 });
         }
 
         [[nodiscard]] CandidateProvider auto deviceView() const
         {
-            return FixedGridCandidateProviderView<CS>{grid, cutoff, imageRadius};
+            return FixedGridCandidateProviderView<CS>{targetGrid, sourceGrid, cutoff, imageRadius};
         }
 
-        Grid grid;
+        Grid targetGrid;
+        Grid sourceGrid;
         Axis cutoff;
         std::array<uint32_t, CS::dimension> imageRadius{};
     };

@@ -26,9 +26,39 @@
 
 namespace pmacc::spearhed
 {
-    /** @brief Selects implicit fixed-grid interaction-plan construction. */
-    struct FixedGridInteractionPlanStrategy
+    /** @brief Tag selecting implicit fixed-grid pairwise candidate construction. */
+    struct FixedCartesianMappingTag
     {
+    };
+
+    /** @brief Device-copyable broad-phase geometry derived from fixed-grid ownership. */
+    template<CoordinateSystem CS>
+    struct FixedCartesianBroadPhaseView
+    {
+        FixedCartesianGrid<CS> grid;
+
+        [[nodiscard]] HDINLINE uint32_t bucketCount() const
+        {
+            return grid.bucketCount();
+        }
+
+        [[nodiscard]] HDINLINE auto chart(uint32_t slot) const
+        {
+            return grid.chart(slot);
+        }
+
+        [[nodiscard]] HDINLINE auto bounds(uint32_t slot) const
+        {
+            return grid.ownershipBounds(slot);
+        }
+
+        [[nodiscard]] bool hasPeriodicImages() const
+        {
+            for(bool const periodicAxis : grid.periodic)
+                if(periodicAxis)
+                    return true;
+            return false;
+        }
     };
 
     namespace detail
@@ -46,10 +76,9 @@ namespace pmacc::spearhed
     {
     public:
         using CoordinateSystemType = CS;
+        using MappingTag = FixedCartesianMappingTag;
         using Store = T_Store;
         using Grid = FixedCartesianGrid<CS>;
-        using InteractionPlanStrategy = FixedGridInteractionPlanStrategy;
-        static constexpr bool fixedGrid = true;
 
         FixedCartesianPreparedRegionSet(
             T_Store& store,
@@ -80,6 +109,11 @@ namespace pmacc::spearhed
         [[nodiscard]] auto deviceView() const
         {
             return m_store->getDeviceDataBox();
+        }
+
+        [[nodiscard]] auto broadPhaseView() const
+        {
+            return FixedCartesianBroadPhaseView<CS>{m_grid};
         }
 
         [[nodiscard]] T_Store& store() const
@@ -221,59 +255,18 @@ namespace pmacc::spearhed
         std::shared_ptr<detail::FixedCartesianMappingState> m_state;
     };
 
-    template<typename T>
-    concept FixedGridPreparedRegionSet = PreparedRegionSet<T> && requires {
-        { std::remove_cvref_t<T>::fixedGrid } -> std::convertible_to<bool>;
-        typename std::remove_cvref_t<T>::CoordinateSystemType;
-    } && std::remove_cvref_t<T>::fixedGrid;
-
-    /**
-     * @brief Make an implicit, CSR-free interaction plan for sources on the same fixed grid.
-     *
-     * Geometry is supplied entirely by FixedGridCandidateProvider. The plan owns
-     * no candidate arrays; it retains only prepared handles and source-store
-     * pointers needed by the interaction launch.
-     */
-    template<FixedGridPreparedRegionSet T_Target, typename T_Radius, FixedGridPreparedRegionSet... T_Sources>
-    [[nodiscard]] auto makeFixedGridInteractionPlan(
-        T_Target const& target,
+    /** @brief CSR-free provider for any pair of fixed Cartesian grids. */
+    template<CoordinateSystem CS, typename T_TargetStore, typename T_Radius, typename T_SourceStore>
+    [[nodiscard]] auto makeCandidateProviderImpl(
+        FixedCartesianMappingTag,
+        FixedCartesianMappingTag,
+        FixedCartesianPreparedRegionSet<CS, T_TargetStore> const& target,
         InteractionQuery<T_Radius> const& query,
-        T_Sources const&... sources)
+        FixedCartesianPreparedRegionSet<CS, T_SourceStore> const& source)
     {
-        target.assertCurrent();
-        if constexpr(sizeof...(sources) > 0u)
-            (sources.assertCurrent(), ...);
-        assert(((target.grid() == sources.grid()) && ...) && "same-grid interactions require identical grid geometry");
-
-        using CS = typename std::remove_cvref_t<T_Target>::CoordinateSystemType;
-        auto bundle = makeNeighbourBundle(
-            InteractionEntry{
-                &sources.store(),
-                FixedGridCandidateProvider<CS>{target.grid(), static_cast<typename CS::T_Axis>(query.radius)}}...);
-        using Plan = InteractionPlan<
-            std::remove_cvref_t<decltype(bundle)>,
-            std::remove_cvref_t<T_Target>,
-            std::remove_cvref_t<T_Sources>...>;
-        return Plan{std::move(bundle), std::tuple{target, sources...}};
-    }
-
-    template<FixedGridPreparedRegionSet T_Target, typename T_Radius, FixedGridPreparedRegionSet... T_Sources>
-    [[nodiscard]] auto makeInteractionPlanImpl(
-        FixedGridInteractionPlanStrategy,
-        T_Target const& target,
-        InteractionQuery<T_Radius> const& query,
-        T_Sources const&... sources)
-    {
-        return makeFixedGridInteractionPlan(target, query, sources...);
-    }
-
-    template<FixedGridPreparedRegionSet T_Target, typename T_Radius, FixedGridPreparedRegionSet... T_Sources>
-    [[nodiscard]] auto makeInteractionPlanImpl(
-        FixedGridInteractionPlanStrategy,
-        T_Target const& target,
-        T_Radius radius,
-        T_Sources const&... sources)
-    {
-        return makeFixedGridInteractionPlan(target, InteractionQuery{radius}, sources...);
+        return FixedGridCandidateProvider<CS>{
+            target.grid(),
+            source.grid(),
+            static_cast<typename CS::T_Axis>(query.radius)};
     }
 } // namespace pmacc::spearhed

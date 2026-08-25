@@ -93,6 +93,7 @@ endfunction()
 add_test_target(unit_test_llama_ "llamaLite" ${CMAKE_CURRENT_SOURCE_DIR}/llama_lite/unit/**)
 add_test_target(unit_test_spmacc_ "spmacc" ${CMAKE_CURRENT_SOURCE_DIR}/spmacc/unit/**)
 add_test_target(unit_test_spearhed_ "spearhed" ${CMAKE_CURRENT_SOURCE_DIR}/spearhed/unit/**)
+target_include_directories(unit_test_spearhed_MappingSetups_MappingSetups PRIVATE ${PROJECT_SOURCE_DIR}/share)
 
 # Repeatable Phase-0 spatial baseline. This is built with the tests but is not registered with
 # CTest: timings are hardware-dependent and are recorded manually in the benchmark notes.

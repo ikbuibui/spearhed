@@ -99,7 +99,7 @@ namespace pmacc::spearhed
 #if (BOOST_LANG_CUDA || BOOST_COMP_HIP)
             m_deviceHeapHandle.free(worker.getAcc(), (void*) node);
 #else
-            operator delete(node, std::nothrow);
+            ::operator delete(static_cast<void*>(node), std::align_val_t{alignof(T)});
 #endif
             node = nullptr;
         }

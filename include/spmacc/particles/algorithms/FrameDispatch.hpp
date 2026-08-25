@@ -27,6 +27,7 @@
 #include <pmacc/dimensions/Definition.hpp>
 #include <pmacc/eventSystem/events/EventTask.hpp>
 #include <pmacc/eventSystem/tasks/TaskKernel.hpp>
+#include <pmacc/eventSystem/waitForAllTasks.hpp>
 #include <pmacc/lockstep/ForEach.hpp>
 #include <pmacc/lockstep/Kernel.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
@@ -92,6 +93,7 @@ namespace pmacc::spearhed
     [[nodiscard]] inline uint32_t inclusiveScanOnHost(pmacc::HostDeviceBuffer<uint32_t, DIM1>& buf, int size)
     {
         buf.deviceToHost();
+        pmacc::eventSystem::waitForAllTasks();
         auto data = buf.getHostBuffer().getDataBox();
         for(int i = 1; i < size; ++i)
             data[i] += data[i - 1];

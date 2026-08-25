@@ -276,7 +276,7 @@ namespace spearhed
         // Region creation registers a zero-sized buffer for every configured species, allowing the
         // setup declaration to instantiate one stable, simulation-wide group set without runtime
         // present-subset specialisation. These owners remain alive through queued target work.
-        spatialGroups.emplace();
+        spatialGroups.emplace(setup, deviceHeap->getAllocatorHandle());
         targetFrameIndices.emplace();
 
         return 0u;

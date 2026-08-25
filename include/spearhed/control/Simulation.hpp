@@ -34,6 +34,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace spearhed
@@ -85,7 +86,9 @@ namespace spearhed
 
     private:
         using SetupDecompositionGroups = pmacc::spearhed::DecompositionGroupsFor<Setup, AllSpecies>;
-        using SpatialGroups = pmacc::spearhed::DecompositionGroupSet<AllSpecies, SetupDecompositionGroups>;
+        using AllocatorHandle = decltype(std::declval<DeviceHeap&>().getAllocatorHandle());
+        using SpatialGroups
+            = pmacc::spearhed::DecompositionGroupSet<AllSpecies, SetupDecompositionGroups, Setup, AllocatorHandle>;
         using InteractionTargets = InteractionTargetSets<Setup, AllSpecies>;
         using TargetFrameIndices = TargetFrameIndexCache<AllSpecies, typename InteractionTargets::Targets>;
 

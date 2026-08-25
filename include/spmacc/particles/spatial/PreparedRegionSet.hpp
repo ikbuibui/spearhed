@@ -26,10 +26,13 @@ namespace pmacc::spearhed
      */
     template<typename T>
     concept PreparedRegionSet = requires(std::remove_cvref_t<T> const& prepared, uint32_t localBucketSlot) {
+        typename std::remove_cvref_t<T>::MappingTag;
+        typename std::remove_cvref_t<T>::Store;
         { prepared.generation() } -> std::convertible_to<uint64_t>;
         { prepared.bucketCount() } -> std::convertible_to<uint32_t>;
         prepared.chart(localBucketSlot);
         { prepared.deviceView() };
+        { prepared.store() } -> std::same_as<typename std::remove_cvref_t<T>::Store&>;
         prepared.assertCurrent();
         requires std::is_trivially_copyable_v<decltype(prepared.deviceView())>;
     };

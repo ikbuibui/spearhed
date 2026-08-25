@@ -37,9 +37,9 @@ namespace pmacc::spearhed
             uint32_t const end = regionOffsets[targetBucketSlot + 1u];
             auto const targetOrigin = targetRegions[targetBucketSlot].spatial.chart.origin;
 
-            for(uint32_t edge = begin; edge < end; ++edge)
+            for(uint32_t idx = begin; idx < end; ++idx)
             {
-                uint32_t const sourceBucketSlot = neighbourRegions[edge];
+                uint32_t const sourceBucketSlot = neighbourRegions[idx];
                 auto const sourceOrigin = sourceRegions[sourceBucketSlot].spatial.chart.origin;
                 fn(RegionCandidate{sourceBucketSlot, sourceOrigin - targetOrigin, true});
             }

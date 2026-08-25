@@ -63,7 +63,7 @@ TEST_CASE("fixed-grid provider matches brute-force cell geometry", "[spatial][fi
 {
     auto const grid = makeGrid({true, true, false});
     constexpr float cutoff = 1.25f;
-    auto const provider = pmacc::spearhed::FixedGridCandidateProvider<CS>{grid, cutoff}.deviceView();
+    auto const provider = pmacc::spearhed::FixedGridCandidateProvider<CS>{grid, grid, cutoff}.deviceView();
 
     for(uint32_t target = 0u; target < grid.bucketCount(); ++target)
     {
@@ -97,4 +97,17 @@ TEST_CASE("fixed-grid provider matches brute-force cell geometry", "[spatial][fi
         actual.erase(std::unique(actual.begin(), actual.end()), actual.end());
         REQUIRE(actual == expected);
     }
+}
+
+TEST_CASE("fixed-grid provider uses distinct target and source grids", "[spatial][fixed-grid]")
+{
+    auto const target = makeGrid();
+    Bounds::Pnt const min{2.0f, 0.0f, 0.0f};
+    Bounds::Pnt const max{4.0f, 6.0f, 8.0f};
+    auto const source = Grid{Bounds{min, max}, {1u, 1u, 1u}};
+    auto const provider = pmacc::spearhed::FixedGridCandidateProvider<CS>{target, source, 0.0f}.deviceView();
+
+    std::vector<uint32_t> candidates;
+    provider.forEachCandidate(1u, [&](auto candidate) { candidates.push_back(candidate.sourceBucketSlot); });
+    REQUIRE(candidates == std::vector<uint32_t>{0u});
 }

@@ -246,6 +246,6 @@ namespace pmacc::spearhed
             (!llama_lite::isSpecializationOf_v<std::decay_t<Entries>, std::reference_wrapper> && ...),
             "Pass entries by value/move; use select() or a viewing bundle for references");
         return NeighbourBundle<true, std::decay_t<Entries>...>{
-            std::forward_as_tuple(std::forward<Entries>(entries)...)};
+            std::tuple<std::decay_t<Entries>...>{std::forward<Entries>(entries)...}};
     }
 } // namespace pmacc::spearhed

@@ -4,17 +4,13 @@
  *
  * PMacc is free software: you can redistribute it and/or modify
  * it under the terms of either the GNU General Public License or
- * the GNU Lesser General Public License as published by the
- * Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  */
 
 #pragma once
 
-#include "spmacc/particles/regions/RegionBoundsUpdate.hpp"
+#include "spmacc/particles/regions/mapping/AdaptiveSplit/Splitting.hpp"
 #include "spmacc/particles/spatial/BroadPhaseView.hpp"
-#include "spmacc/particles/spatial/InteractionPlan.hpp"
-#include "spmacc/particles/spatial/PreparedRegionSet.hpp"
 
 #include <cassert>
 #include <cstdint>
@@ -25,29 +21,28 @@
 
 namespace pmacc::spearhed
 {
+    /** @brief Tag selecting material-style pairwise candidates for adaptive buckets. */
+    struct AdaptiveSplitMappingTag
+    {
+    };
+
     namespace detail
     {
-        struct MaterialAabbMappingState
+        struct AdaptiveSplitMappingState
         {
-            uint64_t generation = 0;
+            uint64_t generation = 0u;
             bool isPrepared = false;
         };
     } // namespace detail
 
-    /** @brief Tag selecting material-like pairwise candidate construction. */
-    struct MaterialAabbMappingTag
-    {
-    };
-
-    /** @brief Prepared material-bucket mapping for one particle store. */
     template<typename T_Store>
-    class MaterialAabbPreparedRegionSet
+    class AdaptiveSplitPreparedRegionSet
     {
     public:
-        using MappingTag = MaterialAabbMappingTag;
+        using MappingTag = AdaptiveSplitMappingTag;
         using Store = T_Store;
 
-        MaterialAabbPreparedRegionSet(T_Store& store, std::shared_ptr<detail::MaterialAabbMappingState> state)
+        AdaptiveSplitPreparedRegionSet(T_Store& store, std::shared_ptr<detail::AdaptiveSplitMappingState> state)
             : m_store(&store)
             , m_state(std::move(state))
             , m_generation(m_state->generation)
@@ -64,9 +59,9 @@ namespace pmacc::spearhed
             return static_cast<uint32_t>(m_store->size);
         }
 
-        [[nodiscard]] decltype(auto) chart(uint32_t localBucketSlot) const
+        [[nodiscard]] decltype(auto) chart(uint32_t slot) const
         {
-            return (m_store->buffer->getHostBuffer().getDataBox()[static_cast<int>(localBucketSlot)].spatial.chart);
+            return (m_store->buffer->getHostBuffer().getDataBox()[static_cast<int>(slot)].spatial.chart);
         }
 
         [[nodiscard]] auto deviceView() const
@@ -84,59 +79,39 @@ namespace pmacc::spearhed
             return *m_store;
         }
 
-        /** @brief Debug-only check that no later preparation replaced this mapping. */
         void assertCurrent() const
         {
 #ifndef NDEBUG
-            assert(m_state->isPrepared && "spatial mapping was used before preparation");
-            assert(m_state->generation == m_generation && "interaction plan uses a stale spatial mapping");
+            assert(m_state->isPrepared && "adaptive split mapping was used before preparation");
+            assert(m_state->generation == m_generation && "interaction plan uses a stale adaptive split mapping");
 #endif
         }
 
     private:
         T_Store* m_store;
-        std::shared_ptr<detail::MaterialAabbMappingState> m_state;
+        std::shared_ptr<detail::AdaptiveSplitMappingState> m_state;
         uint64_t m_generation;
     };
 
-    /**
-     * @brief Current persistent-cohort decomposition behind the spatial lifecycle.
-     *
-     * Attached stores retain material membership: after motion only each bucket's
-     * world-space occupancy is reduced. Candidate construction deliberately uses
-     * the existing all-pairs AABB CSR builder as the material baseline.
-     */
-    template<typename... T_Stores>
-    class MaterialAabbDecomposition
+    /** @brief Adaptive binary decomposition with independent trigger and partition values. */
+    template<typename T_Trigger, typename T_Partition, typename... T_Stores>
+    class AdaptiveSplitDecomposition
     {
     public:
-        explicit MaterialAabbDecomposition(T_Stores&... stores)
-            : m_stores(&stores...)
-            , m_state(std::make_shared<detail::MaterialAabbMappingState>())
+        AdaptiveSplitDecomposition(T_Trigger trigger, T_Partition partition, T_Stores&... stores)
+            : m_splitter(std::move(trigger), std::move(partition))
+            , m_stores(&stores...)
+            , m_state(std::make_shared<detail::AdaptiveSplitMappingState>())
         {
         }
 
-        /**
-         * @brief Establish a new material mapping generation after particle motion.
-         *
-         * Every attached store is reduced in place exactly once, even if it was
-         * supplied more than once during construction. PMacc transaction ordering
-         * keeps the reductions before plans constructed from the resulting handles.
-         */
         void prepareAfterMotion()
         {
+            splitAttachedStores();
             ++m_state->generation;
             m_state->isPrepared = true;
-            updateAttachedStores();
         }
 
-        /**
-         * @brief Return the current lightweight mapping handle for an attached store.
-         *
-         * This never schedules a reduction or any other decomposition maintenance.
-         * The returned handle is valid until the next prepareAfterMotion() on this
-         * decomposition, subject to the usual asynchronous plan lifetime contract.
-         */
         template<typename T_Store>
         [[nodiscard]] auto preparedFor(T_Store& store) const
         {
@@ -147,19 +122,19 @@ namespace pmacc::spearhed
             assert(m_state->isPrepared && "preparedFor() requires prepareAfterMotion() first");
             assert(isAttached(store) && "preparedFor() requires this decomposition's attached store instance");
 #endif
-            return MaterialAabbPreparedRegionSet<T_Store>{store, m_state};
+            return AdaptiveSplitPreparedRegionSet<T_Store>{store, m_state};
         }
 
     private:
         template<std::size_t I = 0u>
-        void updateAttachedStores()
+        void splitAttachedStores()
         {
             if constexpr(I < sizeof...(T_Stores))
             {
                 auto* store = std::get<I>(m_stores);
                 if(!isAttachedBefore<I>(store))
-                    updateMaterialAabbBounds(*store);
-                updateAttachedStores<I + 1u>();
+                    m_splitter.split(*store);
+                splitAttachedStores<I + 1u>();
             }
         }
 
@@ -191,8 +166,8 @@ namespace pmacc::spearhed
                 m_stores);
         }
 
+        adaptive_split::BinarySplitter<T_Trigger, T_Partition> m_splitter;
         std::tuple<T_Stores*...> m_stores;
-        std::shared_ptr<detail::MaterialAabbMappingState> m_state;
+        std::shared_ptr<detail::AdaptiveSplitMappingState> m_state;
     };
-
 } // namespace pmacc::spearhed
