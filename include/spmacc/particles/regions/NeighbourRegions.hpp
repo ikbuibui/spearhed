@@ -29,7 +29,7 @@
 #include "spmacc/particles/spatial/InteractionEntry.hpp"
 
 #include <pmacc/dimensions/Definition.hpp>
-#include <pmacc/eventSystem/waitForAllTasks.hpp>
+#include <pmacc/eventSystem/eventSystem.hpp>
 #include <pmacc/lockstep/Kernel.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
 
@@ -185,7 +185,7 @@ namespace pmacc::spearhed
                     neighbourRegions.getDeviceBuffer().getDataBox(),
                     smoothingLength);
         }
-        pmacc::eventSystem::waitForAllTasks();
+        pmacc::eventSystem::getTransactionEvent().waitForFinished();
         return MaterializedNeighbourCsr{std::move(neighbourRegions), std::move(regionOffsets)};
     }
 

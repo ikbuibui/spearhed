@@ -17,7 +17,7 @@
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/dimensions/DataSpace.hpp>
-#include <pmacc/eventSystem/waitForAllTasks.hpp>
+#include <pmacc/eventSystem/eventSystem.hpp>
 #include <pmacc/lockstep/ForEach.hpp>
 #include <pmacc/lockstep/Kernel.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
@@ -213,7 +213,7 @@ namespace pmacc::spearhed::adaptive_split
             ParticleRegionBuffer<T_Region> replacement;
             replacement.create(destinationParents.size());
             source.buffer->deviceToHost();
-            pmacc::eventSystem::waitForAllTasks();
+            pmacc::eventSystem::getTransactionEvent().waitForFinished();
             auto const parents = source.buffer->getHostBuffer().getDataBox();
             for(uint32_t const parent : destinationParents)
                 replacement.pushBack(parents[static_cast<int>(parent)]);
@@ -288,7 +288,7 @@ namespace pmacc::spearhed::adaptive_split
             selected.deviceToHost();
             labelCounts.deviceToHost();
             store.buffer->deviceToHost();
-            pmacc::eventSystem::waitForAllTasks();
+            pmacc::eventSystem::getTransactionEvent().waitForFinished();
             if(invalidLabels.getHostBuffer().getDataBox()[0] != 0u)
                 throw std::invalid_argument("adaptive partition returned an out-of-range label");
 

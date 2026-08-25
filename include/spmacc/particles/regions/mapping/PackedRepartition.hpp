@@ -13,7 +13,7 @@
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/dimensions/DataSpace.hpp>
-#include <pmacc/eventSystem/waitForAllTasks.hpp>
+#include <pmacc/eventSystem/eventSystem.hpp>
 #include <pmacc/lockstep/ForEach.hpp>
 #include <pmacc/lockstep/Kernel.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
@@ -166,7 +166,7 @@ namespace pmacc::spearhed::packed_repartition
             std::swap(source.size, replacement.size);
             ++source.topologyVersion;
             source.buffer->deviceToHost();
-            pmacc::eventSystem::waitForAllTasks();
+            pmacc::eventSystem::getTransactionEvent().waitForFinished();
             discard(replacement);
         }
     };

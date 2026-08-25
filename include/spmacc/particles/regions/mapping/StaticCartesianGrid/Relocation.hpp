@@ -18,7 +18,7 @@
 
 #include <pmacc/attribute/FunctionSpecifier.hpp>
 #include <pmacc/dimensions/DataSpace.hpp>
-#include <pmacc/eventSystem/waitForAllTasks.hpp>
+#include <pmacc/eventSystem/eventSystem.hpp>
 #include <pmacc/lockstep/ForEach.hpp>
 #include <pmacc/lockstep/Kernel.hpp>
 #include <pmacc/memory/buffers/HostDeviceBuffer.hpp>
@@ -172,7 +172,7 @@ namespace pmacc::spearhed
             ParticleRegionBuffer<T_Region> replacement;
             replacement.create(static_cast<size_t>(source.size));
             source.buffer->deviceToHost();
-            pmacc::eventSystem::waitForAllTasks();
+            pmacc::eventSystem::getTransactionEvent().waitForFinished();
             auto const regions = source.buffer->getHostBuffer().getDataBox();
             for(int slot = 0; slot < source.size; ++slot)
                 replacement.pushBack(regions[slot]);
@@ -300,7 +300,7 @@ namespace pmacc::spearhed
             if(oldRegionCount > 0u)
             {
                 store.buffer->deviceToHost();
-                pmacc::eventSystem::waitForAllTasks();
+                pmacc::eventSystem::getTransactionEvent().waitForFinished();
                 auto const oldRegions = store.buffer->getHostBuffer().getDataBox();
                 auto charts = sourceCharts.getHostBuffer().getDataBox();
                 for(uint32_t slot = 0u; slot < oldRegionCount; ++slot)
